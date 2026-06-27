@@ -35,10 +35,13 @@ services:
         condition: service_healthy
     # Apply DB migrations, seed sample + train baseline model, then serve.
     command: >
-      sh -c "alembic upgrade head &&
-             python -m vectis.scripts.generate_sample &&
-             python -m vectis.scripts.train &&
-             uvicorn vectis.api.main:app --host 0.0.0.0 --port 8000"
+      sh -c "
+      sleep 10 &&
+      alembic upgrade head &&
+      python -m vectis.scripts.generate_sample &&
+      python -m vectis.scripts.train &&
+      uvicorn vectis.api.main:app --host 0.0.0.0 --port 8000
+      "
     # /health only answers once migrate+seed+train finish and uvicorn is serving,
     # so this gates the frontend on a fully-ready backend. urllib avoids adding
     # curl to the slim image. start_period covers the one-time train on boot.
