@@ -46,6 +46,7 @@ class DistributionFamily(StrEnum):
     NORMAL = "normal"
     UNIFORM = "uniform"
     LOGNORMAL = "lognormal"
+    POISSON = "poisson"  # counts (e.g. ignition events); ``value`` is the rate λ
     DETERMINISTIC = "deterministic"  # a known constant (no uncertainty)
 
 
@@ -173,6 +174,24 @@ class SimulationConfig(BaseModel):
     )
     retain_samples: bool = Field(
         default=False, description="Keep raw draws on the output (heavier payload)."
+    )
+    n_workers: int = Field(
+        default=1,
+        ge=1,
+        description=(
+            "Number of independent RNG streams the draws are split across. With "
+            "1 (default) the engine runs a single vectorized kernel — fastest for "
+            "cheap per-sample math. >1 enables chunked execution. Reproducibility "
+            "is defined per ``(seed, n_workers)`` pair (changing either changes the draws)."
+        ),
+    )
+    parallel: bool = Field(
+        default=False,
+        description=(
+            "When True and n_workers>1, run chunks on a ProcessPoolExecutor across "
+            "CPU cores. Output is identical to the serial-chunked path for the same "
+            "``(seed, n_workers)`` — parallelism changes *where* chunks run, not the numbers."
+        ),
     )
 
 

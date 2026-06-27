@@ -1,8 +1,10 @@
 # V2 — The Simulation & Forecasting Engine
 
-> Status: **architectural foundation (Session 6)**. This document defines the
-> blueprint and contracts for V2. No Monte Carlo logic is implemented yet — that
-> is Session 7. See `backend/vectis/simulation/` for the interfaces described here.
+> Status: **Monte Carlo engine implemented (Session 7)**. Session 6 defined the
+> blueprint and contracts; Session 7 implemented the concrete vectorized engine
+> (`engine/`, `models/`, `scenarios/generator.py`) — 100k samples in ~70 ms,
+> reproducible and optionally parallel. State Estimation and Bayesian updating
+> remain interfaces (Session 8). See `backend/vectis/simulation/`.
 
 ---
 

@@ -361,6 +361,48 @@ vectorization for 10k–1M draws. The skeleton is clean, decoupled, and mathemat
 
 ---
 
+## Current Progress (Session 7 — Monte Carlo Engine — COMPLETE)
+
+Focus: **implement the concrete Monte Carlo simulation engine** behind the Session-6 ABCs.
+Pure math, no LLMs (the V2 Golden Rule, enforced structurally — `simulation/` still imports
+zero `vectis.agents`). Target: correctly generate + evaluate **100k scenarios** with
+vectorization, reproducibility, and a parallel-execution architecture.
+
+**Headline result:** 100k iterations × 3 scenarios (300k logistic evaluations) in **~70 ms**
+— the brief's budget was 100k in <2 s. Reproducible (same seed ⇒ identical draws) and
+optionally parallel (process-pool output is byte-identical to the serial path).
+
+**What was built (all green: ruff clean, mypy clean on 74 files, 56 pytest pass — was 48):**
+- **`engine/distributions.py`** — vectorized `Distribution` wrappers over `scipy.stats`
+  (`Normal`, `Lognormal`, `Uniform`, `Poisson`, `Constant`) + a `distribution_for(StateVariable)`
+  factory that fails loud on missing params. Each `.sample(rng, size)` is one C-level call
+  threading an explicit numpy `Generator` as `random_state`.
+- **`engine/sampler.py`** — `sample_state()` draws the whole `WorldState` into a
+  `{name: ndarray}` column mapping (applying scenario perturbations first); `split_iterations()`
+  balances chunks; reproducibility is rooted in numpy `SeedSequence`/`Generator`.
+- **`models/wildfire.py`** — `WildfireHazardModel` (impl of new `HazardModel` ABC): a vectorized
+  **logistic** `P(fire) = scipy.special.expit(intercept + Σ coef·input)`. Coefficients are
+  illustrative (`ponytail:` — calibrate against FIRMS labels later).
+- **`engine/runner.py`** — `VectorizedMonteCarloEngine` (impl of `MonteCarloEngine`). One code
+  path, two modes: always splits draws into `n_workers` independent `SeedSequence.spawn` streams;
+  `parallel=True & n_workers>1` runs chunks on a `ProcessPoolExecutor`, else serially —
+  **identical numbers either way**. Reduces per-sample risk (0–100) to a `ProbabilityDistribution`
+  (mean/std/p05/p50/p95 + band-exceedance P(≥50), P(≥75)).
+- **`scenarios/generator.py`** — `WildfireScenarioGenerator` (impl of `ScenarioGenerator`): 3
+  weighted branches (baseline 0.5 / hotter_drier 0.3 / extreme_wind 0.2) + `liguria_wildfire_state()`
+  digital-twin factory (the +2 °C / −30 % rainfall / high-wind use case, with uncertainty).
+- **`schemas.py`** extended: added `DistributionFamily.POISSON` and `SimulationConfig.n_workers` +
+  `SimulationConfig.parallel`. `pyproject.toml`: added `scipy>=1.11` (now a direct dep).
+- **`tests/simulation/test_monte_carlo.py`** — 8 tests: same-seed reproducibility, seed-sensitivity,
+  100k-under-2s + stats sanity, retained-sample size + scenario ordering (hotter_drier > baseline),
+  distribution bounds/shape, factory param validation, **parallel == serial-chunked**, prior-sum guard.
+
+**Files added:** `engine/distributions.py`, `engine/sampler.py`, `engine/runner.py`,
+`models/wildfire.py`, `scenarios/generator.py`, `tests/simulation/test_monte_carlo.py`.
+**Changed:** `simulation/schemas.py`, `pyproject.toml`, `docs/v2_simulation_engine.md`, `HANDOFF.md`.
+
+---
+
 ## What Worked (decisions that succeeded — keep these)
 
 - **(V2) Pure-math layer, enforced by the dependency graph.** `simulation/` imports only `core` +
@@ -372,6 +414,20 @@ vectorization for 10k–1M draws. The skeleton is clean, decoupled, and mathemat
   makes whole classes of bugs unrepresentable.
 - **(V2) Reconcile to `backend/vectis/`, not a literal `backend/app/`.** Third time this brief
   pattern appeared (S2, S4, now); the answer is the same — integrate, don't duplicate the package.
+- **(S7) Vectorization alone crushes the workload — uncertainty propagation via input sampling.**
+  The MC stochasticity lives in *sampling the inputs*; the hazard is a deterministic vectorized
+  logistic over those arrays. 300k evaluations in ~70 ms with plain numpy/scipy — no Python loop
+  over scenarios, exactly as the brief demanded.
+- **(S7) One sampling code path, parallelism as an execution mode (not a second algorithm).**
+  Draws are *always* split into `n_workers` `SeedSequence.spawn` streams; `parallel` only chooses
+  process-pool vs in-process. Result: serial and parallel are **byte-identical** for the same
+  `(seed, n_workers)` — proven by a test — so parallelism can't silently change the science.
+- **(S7) Reproducibility rooted in numpy `SeedSequence`, defined per `(seed, n_workers)`.** Default
+  `n_workers=1` ⇒ a single full-size vectorized draw, fully reproducible on any machine. Avoided
+  defaulting workers to `os.cpu_count()` precisely because that would make results machine-dependent.
+- **(S7) `scipy.stats` for the named families + `scipy.special.expit` for a stable sigmoid.**
+  Honors the brief's "use scipy", gives the modelling vocabulary (Normal/Lognormal/Uniform/Poisson),
+  and `expit` is the C-level, overflow-safe logistic — made `scipy` a justified direct dependency.
 
 - **Token-driven restyle (S6).** Recoloring ~10 semantic Tailwind tokens + aliasing `font-sans`
   to mono restyled the whole console with edits to only 2 config/style files plus the 2 shared
@@ -522,36 +578,52 @@ vectorization for 10k–1M draws. The skeleton is clean, decoupled, and mathemat
 
 ---
 
-## Next Steps (Session 7 — pick up here)
+- **(S7) Multiprocessing is *not* a speedup for this workload — kept as architecture, off by
+  default.** For 100k cheap vectorized evaluations the numpy kernel runs in tens of ms; spawning
+  processes + pickling arrays would *add* overhead. Implemented the chunked `ProcessPoolExecutor`
+  path (correct, reproducible, tested) but default `parallel=False`/`n_workers=1`. The ceiling it
+  raises: turn it on when *per-sample* cost grows (expensive physics per draw), not for cheap math.
+- **(S7) `concurrent.futures` worker must be module-level + args picklable.** `_simulate_chunk`
+  lives at module scope in `engine/runner.py` and takes only picklable args (pydantic models, a
+  numpy `SeedSequence`, an int, a frozen-dataclass hazard) so Windows `spawn` works. Don't make it
+  a closure/method — it won't pickle.
+- **(S7) `ruff` gotchas in new code:** `N817` rejects `import DistributionFamily as DF` (acronym),
+  `C408` rejects `dict(...)` literals, `I001` import ordering (stdlib `concurrent.futures` before
+  third-party `numpy`). All trivially fixed; mypy is scoped to `vectis/` only (tests untyped is fine).
+
+## Next Steps (Session 8 — pick up here)
 
 **Done so far (do not redo):** S1 vertical slice; S2 DB session layer + migrations + readiness;
 S3 LangGraph engine + two-engine interface + extended ML metrics + auditable model selection;
 S4 the full enterprise frontend console; **S5 OSS/production-readiness hardening** (frontend
 tests in CI, Docker healthchecks + reproducible `npm ci`, `.editorconfig`, repo-structure docs,
-security review); **S6 the "Matrix x Palantir Gotham" tactical redesign** (pure-black/neon/mono
-token theme, radar grid, Arwes 45° corners + glow, interactive 3D Liguria wireframe globe);
-**V2 Foundation** (the `simulation/` skeleton — schemas + ABC interfaces + docs, no logic). Note:
-the **NASA FIRMS / live-data work was never done** — it remains a top backend priority.
+security review); **S6 the "Matrix x Palantir Gotham" tactical redesign**; **V2 Foundation**
+(the `simulation/` skeleton — schemas + ABC interfaces + docs); **S7 the Monte Carlo engine**
+(`distributions`/`sampler`/`runner`/`models/wildfire`/`scenarios/generator` — vectorized, seeded,
+reproducible, optional process-pool parallelism; 100k in ~70 ms; 8 tests). Note: the **NASA FIRMS
+/ live-data work was never done** — it remains a top backend priority, and feeds V2 State Estimation.
 
-### Session 7 PRIMARY: implement the Monte Carlo engine (V2)
+### Session 8 PRIMARY: Probability & Bayesian Update (V2)
 
-The V2 foundation is laid (`backend/vectis/simulation/`, `docs/v2_simulation_engine.md`). Now build
-the math behind the interfaces — **deterministic libraries only, no LLMs in the calculation**:
+The engine produces distributions from priors; now close the **learn-from-data loop** and the
+remaining V2 interfaces — still **deterministic libraries only, no LLMs in the math**:
 
-- **`engine/monte_carlo.py`** → a concrete `MonteCarloEngine` using a **seeded `numpy.random.Generator`**.
-  Vectorize for 10k–1M draws (sample all iterations as arrays; avoid Python loops). Sample each
-  `StateVariable` per its `DistributionFamily`, apply each scenario's `perturbations`, push through a
-  stochastic model, reduce to `ProbabilityDistribution`, weight by scenario prior.
-- **`models/`** → pick the first stochastic process (a Markov chain over `RiskBand`, or a random walk
-  on the 0–100 risk score is the lazy starting point). Small seedable `step`/`sample` interface.
-- **`states/base.py` impl** → a `SampleStateEstimator` building a `WorldState` from the existing V1
-  feature pipeline (reuse `data/pipeline/`), attaching uncertainty per variable.
-- **`scenarios/base.py` impl** → port the V1 `SimulationAgent`'s 3 hand-tuned scenarios
-  (`hotter_drier_month` etc.) into a `ScenarioGenerator` with explicit priors summing to 1.
-- **`probability/bayesian.py` impl** → start simple (Gaussian likelihood, `scipy`); defer `pymc`.
-- **Tests** (reproducibility is the headline contract): same seed ⇒ byte-identical `SimulationRun`;
-  priors-sum-to-1 enforced; distribution stats sane on a known input. Then a `forecasting/` adapter
-  + an API endpoint, and finally the V1 **Analyst** agent that *reads* the `Forecast` and narrates it.
+- **`probability/bayesian.py` impl** → a concrete `BayesianUpdater`: posterior ∝ prior × likelihood.
+  Start simple — Gaussian likelihood of each `Observation` under each scenario's predicted state
+  (`scipy.stats`); re-normalize priors and return a new `ScenarioSet` (the schema enforces sum-to-1).
+  Defer `pymc` until a conjugate/closed-form update is clearly insufficient. Test: an observation
+  consistent with `hotter_drier` shifts mass toward it; posterior still sums to 1; same seed/inputs
+  reproducible. This wires the `estimate → simulate → observe → update` loop shut.
+- **`states/base.py` impl** → a `SampleStateEstimator` building a `WorldState` (with per-variable
+  uncertainty) from the existing V1 feature pipeline (`data/pipeline/`), so the engine starts from a
+  real estimated state rather than the hand-set `liguria_wildfire_state()`.
+- **`forecasting/` impl** → adapt a `SimulationRun` into a public `Forecast` (mixture over scenarios
+  weighted by posterior priors → a single horizon distribution + per-band probabilities), plus an
+  API endpoint exposing it. Then the V1 **Analyst** agent that *reads* the `Forecast` and narrates it
+  (LLM-narrates-not-decides — it must never recompute the numbers).
+- **Calibration:** the `WildfireHazardModel` coefficients are illustrative (`ponytail:` in
+  `models/wildfire.py`) — once FIRMS labels exist, fit them (reuse V1's logistic model) so the
+  hazard is empirical, not hand-tuned.
 
 0. **Run `docker compose up --build` once** on a machine with Docker (carried from S4/S5). Verify
    the new backend healthcheck flips healthy after migrate+seed+train and the frontend then starts

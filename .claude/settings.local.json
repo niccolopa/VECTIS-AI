@@ -15,7 +15,16 @@
       "Bash(.venv/Scripts/python.exe -m mypy vectis)",
       "Bash(VECTIS_ENV=test VECTIS_LLM_PROVIDER=mock .venv/Scripts/python.exe -m pytest -q)",
       "Bash(VECTIS_ENV=test VECTIS_LLM_PROVIDER=mock .venv/Scripts/python.exe -m pytest)",
-      "Bash(backend/.venv/Scripts/python.exe -c \"import yaml; yaml.safe_load\\(open\\('docker-compose.yml'\\)\\); yaml.safe_load\\(open\\('.github/workflows/ci.yml'\\)\\); print\\('YAML OK: both parse'\\)\")"
+      "Bash(backend/.venv/Scripts/python.exe -c \"import yaml; yaml.safe_load\\(open\\('docker-compose.yml'\\)\\); yaml.safe_load\\(open\\('.github/workflows/ci.yml'\\)\\); print\\('YAML OK: both parse'\\)\")",
+      "Bash(grep -n \"^#\\\\{1,2\\\\} \" HANDOFF.md)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat: tactical Matrix/Gotham frontend redesign with 3D Liguria globe *)",
+      "Bash(.venv/Scripts/python.exe -m ruff check vectis/simulation)",
+      "Bash(.venv/Scripts/python.exe -m mypy vectis/simulation)",
+      "Bash(.venv/Scripts/python.exe -m pytest -q)",
+      "Bash(git commit -m ' *)",
+      "Bash(.venv/Scripts/python.exe -c \"import scipy; from scipy import stats; from scipy.special import expit; print\\('scipy', scipy.__version__\\)\")",
+      "Bash(.venv/Scripts/python.exe -c ' *)"
     ]
   }
 }
