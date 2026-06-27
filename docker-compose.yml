@@ -46,11 +46,12 @@ services:
     # so this gates the frontend on a fully-ready backend. urllib avoids adding
     # curl to the slim image. start_period covers the one-time train on boot.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vectis -d vectis -h localhost"]
-      interval: 5s
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/docs\")'"]
+      interval: 10s
       timeout: 5s
-      retries: 20
+      retries: 10
       start_period: 180s
+
 
   frontend:
     build:
