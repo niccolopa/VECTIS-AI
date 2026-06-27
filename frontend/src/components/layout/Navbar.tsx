@@ -30,7 +30,7 @@ export function Navbar() {
         </button>
         <div>
           <div className="eyebrow">Operational Intelligence</div>
-          <h1 className="text-sm font-semibold leading-tight">{title}</h1>
+          <h1 className="text-sm font-semibold leading-tight text-glow">{title}</h1>
         </div>
       </div>
 

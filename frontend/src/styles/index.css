@@ -1,8 +1,11 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* VECTIS console base — enterprise dark, dense, data-first. */
+/* VECTIS console base — "Matrix meets Palantir Gotham": pure black, monospaced,
+   neon green/cyan with glow, tactical radar grid. */
 @layer base {
   html,
   body,
@@ -10,16 +13,28 @@
     height: 100%;
   }
   body {
-    @apply bg-bg text-text font-sans antialiased;
+    @apply bg-bg text-text font-mono antialiased;
     font-size: 14px;
+    /* Tactical radar grid: fine neon lattice over pure black. Fixed so it reads as
+       a HUD backdrop rather than scrolling with content. */
+    background-color: #000000;
+    background-image:
+      linear-gradient(rgba(57, 255, 20, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(57, 255, 20, 0.06) 1px, transparent 1px),
+      radial-gradient(circle at 50% 50%, rgba(0, 255, 213, 0.05) 0%, transparent 60%);
+    background-size:
+      32px 32px,
+      32px 32px,
+      100% 100%;
+    background-attachment: fixed;
   }
-  /* Calm, thin scrollbars suited to dense data surfaces. */
+  /* Thin neon scrollbars. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-border-strong rounded;
+    @apply bg-border-strong;
   }
   ::-webkit-scrollbar-track {
     @apply bg-transparent;
@@ -34,5 +49,41 @@
   /* MapLibre fills its container. */
   .maplibregl-map {
     @apply h-full w-full;
+  }
+}
+
+@layer utilities {
+  /* Neon text glow. */
+  .text-glow {
+    text-shadow:
+      0 0 6px rgba(57, 255, 20, 0.55),
+      0 0 14px rgba(57, 255, 20, 0.25);
+  }
+  .text-glow-cyan {
+    text-shadow:
+      0 0 6px rgba(0, 255, 213, 0.6),
+      0 0 14px rgba(0, 255, 213, 0.3);
+  }
+  /* Arwes-style 45° clipped corners. `clip-corner` cuts all four corners for
+     panels; `clip-corner-sm` is the tighter cut used on buttons/inputs. */
+  .clip-corner {
+    clip-path: polygon(
+      12px 0,
+      100% 0,
+      100% calc(100% - 12px),
+      calc(100% - 12px) 100%,
+      0 100%,
+      0 12px
+    );
+  }
+  .clip-corner-sm {
+    clip-path: polygon(
+      7px 0,
+      100% 0,
+      100% calc(100% - 7px),
+      calc(100% - 7px) 100%,
+      0 100%,
+      0 7px
+    );
   }
 }

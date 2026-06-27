@@ -14,10 +14,10 @@ export function Sidebar() {
       )}
     >
       <div className="flex h-14 items-center gap-2.5 px-4 border-b border-border">
-        <span className="text-accent text-lg leading-none">▲</span>
+        <span className="text-accent text-lg leading-none text-glow-cyan">▲</span>
         {!collapsed && (
           <div className="leading-tight">
-            <div className="text-sm font-bold tracking-[0.18em]">VECTIS</div>
+            <div className="text-sm font-bold tracking-[0.18em] text-glow">VECTIS</div>
             <div className="text-2xs text-muted-2">Decision Intelligence</div>
           </div>
         )}

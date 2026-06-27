@@ -13,6 +13,7 @@ import {
   Table,
   type Column,
 } from "@/components/ui";
+import { GlobeWidget } from "@/components/three/GlobeWidget";
 import { useAnalyses, useHealth } from "@/hooks/queries";
 import { relativeTime } from "@/utils/format";
 import { riskColor } from "@/utils/risk";
@@ -77,6 +78,19 @@ export function OverviewPage() {
           sub={health ? `v${health.version} · ${health.env}` : undefined}
         />
       </div>
+
+      <Card flush className="mb-4">
+        <div className="p-4">
+          <CardHeader
+            title="Liguria — Tactical View"
+            eyebrow="Geospatial intelligence"
+            actions={<span className="text-2xs text-muted-2">drag to orbit · scroll to zoom</span>}
+          />
+        </div>
+        <div className="h-72 w-full">
+          <GlobeWidget />
+        </div>
+      </Card>
 
       <Card flush>
         <div className="p-4">

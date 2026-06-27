@@ -13,8 +13,8 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-accent border-accent text-white hover:bg-accent/90",
-  secondary: "bg-surface border-border text-text hover:bg-surface-3",
+  primary: "bg-accent/15 border-accent text-accent shadow-glow-cyan hover:bg-accent/25 text-glow-cyan",
+  secondary: "bg-surface border-border-strong text-text hover:bg-surface-3 hover:shadow-glow",
   ghost: "bg-transparent border-transparent text-muted hover:text-text hover:bg-surface-3",
   danger: "bg-risk-severe/15 border-risk-severe/40 text-risk-severe hover:bg-risk-severe/25",
 };
@@ -37,7 +37,7 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center rounded-lg border font-medium transition-colors",
+        "clip-corner-sm inline-flex items-center justify-center border font-medium uppercase tracking-wide transition-all",
         "disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent/50",
         VARIANTS[variant],
         SIZES[size],

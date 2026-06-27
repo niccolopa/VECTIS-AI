@@ -12,7 +12,8 @@ export function Card({ children, className, flush }: CardProps) {
   return (
     <div
       className={cn(
-        "rounded-xl border border-border bg-surface overflow-hidden",
+        "clip-corner border border-border-strong bg-surface overflow-hidden",
+        "shadow-[0_0_0_1px_rgba(0,255,213,0.08),0_0_18px_rgba(0,255,213,0.06)]",
         !flush && "p-4",
         className,
       )}

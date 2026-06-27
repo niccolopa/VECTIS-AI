@@ -253,7 +253,59 @@ TanStack Query data layer, MapLibre map, real backend integrations) is unchanged
 
 ---
 
+## Current Progress (Session 6 — COMPLETE)
+
+Focus: **frontend visual redesign — "Matrix meets Palantir Gotham 3D" tactical aesthetic.**
+No backend or data-layer changes; the S4/S5 architecture (8 pages, TanStack Query, MapLibre,
+real backend integrations) is intact and still green.
+
+**Frontend status:** all 7 Vitest tests pass, `typecheck` clean, `vite build` succeeds.
+
+**Design-system decisions (centralized, token-driven — restyle from 2 files):**
+- **Pure-black, neon, monospaced theme** via `tailwind.config.js` tokens only. `bg` → `#000000`,
+  surfaces near-black, `text` → neon green `#39ff14`, `accent` → neon cyan `#00ffd5`, borders are
+  dim/active neon greens. Because every component already used semantic tokens (`bg-bg`, `text-text`,
+  `accent`, `border`), recoloring the tokens restyled the entire console with near-zero per-component
+  churn.
+- **Strictly monospaced** — `fontFamily.sans` now aliases the JetBrains Mono stack, so existing
+  `font-sans` usages become terminal-style without editing each component. JetBrains Mono loaded via
+  Google Fonts `@import` in `styles/index.css`.
+- **Tactical radar grid** — fixed-attachment CSS background on `body` (fine neon lattice +
+  radial cyan glow) in `styles/index.css`. Pure CSS, no component or canvas needed.
+- **Neon glow** — `text-glow` / `text-glow-cyan` utilities and `shadow-glow*` tokens; applied to
+  headings (sidebar wordmark, navbar section title) and primary buttons.
+- **Arwes-style 45° corners + thin contour lines** — `clip-corner` / `clip-corner-sm` clip-path
+  utilities applied to the shared `Card` and `Button` primitives plus a neon contour border/ring,
+  so every panel and button across all pages inherits the high-tech cut from one place.
+
+**Components created:**
+- `src/components/three/GlobeWidget.tsx` — interactive 3D neon-green wireframe globe
+  (`@react-three/fiber` + `three` + `@react-three/drei` `OrbitControls`). Plots the four Liguria
+  province centroids (Genova, Savona, Imperia, La Spezia) as glowing cyan nodes with radial spikes
+  on a slowly auto-rotating sphere oriented to face Liguria. Drag to orbit, scroll to zoom. Mounted
+  as a "Liguria — Tactical View" card on the Overview page.
+
+**API integrations completed:** none changed this session (pure presentation). The globe uses real
+province coordinates; risk/analysis data wiring into the 3D nodes is left as a next step.
+
+**Dependencies added:** `three`, `@react-three/fiber`, `@react-three/drei`.
+
+**Files changed:** `tailwind.config.js`, `src/styles/index.css`, `src/components/ui/Button.tsx`,
+`src/components/ui/Card.tsx`, `src/components/layout/Sidebar.tsx`, `src/components/layout/Navbar.tsx`,
+`src/pages/OverviewPage.tsx`. **Added:** `src/components/three/GlobeWidget.tsx`.
+
+---
+
 ## What Worked (decisions that succeeded — keep these)
+
+- **Token-driven restyle (S6).** Recoloring ~10 semantic Tailwind tokens + aliasing `font-sans`
+  to mono restyled the whole console with edits to only 2 config/style files plus the 2 shared
+  primitives — no page-by-page rework. Proof that the S4 "few semantic tokens" decision paid off.
+- **CSS-only radar grid and glow (S6).** Background lattice and neon glow are plain CSS
+  (`background-image` + `text-shadow` utilities), not React/canvas — zero runtime cost, no new
+  component.
+- **45° corners on shared primitives (S6).** Putting `clip-corner` on `Card`/`Button` propagates
+  the Arwes look everywhere automatically.
 
 - **Contracts-first design.** Defining `schemas.py` (esp. `DecisionReport`/`AgentState`)
   before logic kept every layer aligned and made the slice fall into place.
@@ -378,17 +430,32 @@ TanStack Query data layer, MapLibre map, real backend integrations) is unchanged
   (healthcheck, `service_healthy` gate) and `frontend/Dockerfile` (`npm ci`) were validated by
   reasoning + `npm ci` sync check, but `docker compose up` still hasn't been run here (carried
   over from S4 #5). First task for whoever has Docker available.
+- **(S6) `clip-path` corners eat the border on the diagonal cut.** The 45° `clip-corner`
+  utilities clip the element, so the CSS `border` is visible only on the straight edges, not the
+  angled corners. Accepted (still reads as a high-tech cut) and reinforced with a neon
+  `box-shadow` ring. For a true Arwes outline on the diagonals later, overlay an SVG/pseudo-element
+  border instead of relying on `border`.
+- **(S6) three.js inflates the bundle to ~2.3 MB (gzip ~630 kB).** Vite warns >500 kB. Left as-is
+  (functional); the right fix is lazy-loading `GlobeWidget` via `React.lazy` + `manualChunks` so
+  three only loads on the Overview route — folded into the existing code-splitting polish item.
+- **(S6) `@react-three/fiber` Canvas renders nothing under jsdom (no WebGL).** It does *not*
+  throw, so the OverviewPage test still passes without mocking. Don't add a stub unless a test
+  starts asserting on canvas internals.
+- **(S6) "Multiple instances of Three.js" warning** in test/build output comes from fiber+drei
+  pulling three; harmless with a single `three` in the lockfile. Ignore unless it becomes a real
+  dedupe problem.
 
 ---
 
-## Next Steps (Session 6 — pick up here)
+## Next Steps (Session 7 — pick up here)
 
 **Done so far (do not redo):** S1 vertical slice; S2 DB session layer + migrations + readiness;
 S3 LangGraph engine + two-engine interface + extended ML metrics + auditable model selection;
 S4 the full enterprise frontend console; **S5 OSS/production-readiness hardening** (frontend
 tests in CI, Docker healthchecks + reproducible `npm ci`, `.editorconfig`, repo-structure docs,
-security review). Note: the **NASA FIRMS / live-data work was never done** — it remains the top
-backend priority.
+security review); **S6 the "Matrix x Palantir Gotham" tactical redesign** (pure-black/neon/mono
+token theme, radar grid, Arwes 45° corners + glow, interactive 3D Liguria wireframe globe). Note:
+the **NASA FIRMS / live-data work was never done** — it remains the top backend priority.
 
 0. **Run `docker compose up --build` once** on a machine with Docker (carried from S4/S5). Verify
    the new backend healthcheck flips healthy after migrate+seed+train and the frontend then starts
@@ -411,9 +478,13 @@ Then, highest-leverage:
 5. **Deployment hardening (when shipping):** multi-stage **nginx** frontend image (replace
    `vite preview`); pin/scan dependencies (Dependabot or `pip-audit`/`npm audit` in CI); add a
    `make test` target that also runs the frontend suite; consider a coverage gate.
-6. **Frontend polish:** route-level code-splitting / `manualChunks` (bundle ~1.4 MB), an
-   orchestration-engine indicator, evidence drill-down, and console screenshots into `docs/assets/`
-   (README has the placeholder).
+6. **Frontend polish:** route-level code-splitting / `manualChunks` + `React.lazy` for
+   `GlobeWidget` (bundle ~2.3 MB now that three.js is in), an orchestration-engine indicator,
+   evidence drill-down, and console screenshots into `docs/assets/` (README has the placeholder).
+6b. **Wire real risk data into the 3D globe.** `GlobeWidget` currently plots static Liguria
+   province centroids in a fixed neon color. Color/size each node by the live `risk_score`
+   (reuse `utils/risk.ts` `riskColor`) and add hover tooltips, so the "Liguria — Tactical View"
+   reflects actual analysis output rather than just geography.
 7. **LLM-assisted critique (additive)**; **ORM domain entities** (`areas`/`datasets`/`predictions`/
    `reports` via `make revision`); **AuthN/Z** (API keys/JWT) ahead of deployment.
 8. **Optional:** knowledge-graph layer; LangGraph checkpointing (serializable state — keep

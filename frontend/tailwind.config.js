@@ -1,22 +1,23 @@
 /** @type {import('tailwindcss').Config} */
-// Enterprise dark design system. Tokens are intentionally few and semantic so the
-// whole console stays visually consistent (Palantir-style: dense, calm, data-first).
+// "Matrix meets Palantir Gotham" tactical design system. Pure-black, monospaced,
+// neon-green/cyan. Tokens stay few and semantic so the whole console restyles from
+// here (components reference bg/surface/text/accent/border, not raw hexes).
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        bg: "#0a0e14", // app background
-        surface: "#11161f", // panels / cards
-        "surface-2": "#0d121a", // insets
-        "surface-3": "#161d28", // hover / raised
-        border: "#1e2733",
-        "border-strong": "#2a3645",
-        text: "#e6edf3",
-        muted: "#9aa4b2",
-        "muted-2": "#6b7685",
-        accent: "#4f8cff",
-        "accent-dim": "#2a4a7f",
+        bg: "#000000", // app background — pure black
+        surface: "#020806", // panels / cards
+        "surface-2": "#010403", // insets
+        "surface-3": "#04120c", // hover / raised
+        border: "#0d3b2a", // dim neon contour
+        "border-strong": "#16a34a", // active neon contour
+        text: "#39ff14", // neon green
+        muted: "#1fae57",
+        "muted-2": "#0f7a44",
+        accent: "#00ffd5", // neon cyan
+        "accent-dim": "#0b6b63",
         // Risk bands — single source of truth shared with the map ramp (utils/risk.ts).
         risk: {
           low: "#22c55e",
@@ -26,7 +27,9 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["Inter", "Segoe UI", "system-ui", "-apple-system", "sans-serif"],
+        // Strictly monospaced everywhere — `sans` aliases the mono stack so existing
+        // font-sans usages become terminal-style without touching every component.
+        sans: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "monospace"],
         mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       fontSize: {
@@ -34,6 +37,10 @@ export default {
       },
       borderRadius: {
         xl: "0.75rem",
+      },
+      boxShadow: {
+        glow: "0 0 8px rgba(57,255,20,0.45), 0 0 2px rgba(57,255,20,0.6)",
+        "glow-cyan": "0 0 8px rgba(0,255,213,0.5), 0 0 2px rgba(0,255,213,0.7)",
       },
     },
   },
