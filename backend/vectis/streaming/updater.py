@@ -1,26 +1,21 @@
-"""Real-time orchestrator — the seam between live data and the math engines.
+"""Real-time orchestrator — route live events to digital twins.
 
-:class:`RealTimeUpdater` owns the current belief state for a region and turns a
-single incoming event into a decision:
+Since Session 10, the belief/risk state lives inside :class:`~vectis.digital_twin.
+entities.region.RegionTwin` objects held in a :class:`~vectis.digital_twin.state.
+manager.StateManager`. :class:`RealTimeUpdater` is now a thin **router**:
 
-1. **Register** the event → an :class:`Observation`.
-2. **Debounce**: drop content-duplicates seen inside a short window (so 100
-   identical readings/sec don't become 100 Bayesian updates — which would also be
-   *mathematically* wrong, double-counting one measurement).
-3. **Bayesian update**: revise the scenario beliefs (Session 8).
-4. **Decide**: if the belief shift (total-variation distance) is significant,
-   **re-run Monte Carlo** (Session 7) to refresh the risk distribution; otherwise
-   reuse the per-scenario risk from the last full run (cheap re-weighting).
-5. **Emit** a :class:`StateChange` describing the new picture.
+1. **Debounce** content-duplicate events (so 100 identical readings/sec don't
+   become 100 updates — also keeping the Bayesian math honest).
+2. **Route** the event to its region's twin via the manager.
+3. **Delegate** to ``twin.update_from_observation`` (deterministic transition →
+   Bayesian update → conditional Monte Carlo re-run — all inside the twin).
+4. **Wrap** the twin's :class:`TwinUpdate` in a transport-level :class:`StateChange`.
 
-`process` is **pure, synchronous, and transport-agnostic** — it neither awaits nor
-knows about WebSockets, threads, or HTTP. That is the swappable seam: FastAPI
-BackgroundTasks call it today; a Celery worker or Kafka consumer could call the
-exact same method tomorrow with zero change to the math.
-
-A single in-process lock guards the shared belief state. ponytail: global lock —
-fine for one region in one process; shard to per-region locks (or a Redis lock)
-when this serves many regions or scales out.
+``process`` stays **pure, synchronous, and transport-agnostic** — the swappable
+seam. FastAPI BackgroundTasks call it today; a Celery/Kafka worker could call the
+exact same method tomorrow. The CPU-bound math now lives in the twin; the router
+only debounces and dispatches, so its lock is held briefly (per-twin locks inside
+the twins do the real serialization — that scales to many regions).
 """
 
 from __future__ import annotations
@@ -29,110 +24,64 @@ import threading
 import time
 
 from vectis.core.logging import get_logger
-from vectis.simulation.engine.runner import VectorizedMonteCarloEngine
-from vectis.simulation.probability.bayesian import GaussianBayesianUpdater
-from vectis.simulation.probability.uncertainty import (
-    posterior_mixture_risk,
-    scenario_confidence,
-)
-from vectis.simulation.scenarios.generator import (
-    WildfireScenarioGenerator,
-    liguria_wildfire_state,
-)
-from vectis.simulation.schemas import (
-    ScenarioSet,
-    SimulationConfig,
-    SimulationRun,
-    WorldState,
-)
-from vectis.streaming.events import RiskState, StateChange, StreamEvent
+from vectis.digital_twin.entities.region import RegionTwin
+from vectis.digital_twin.schemas import RiskState
+from vectis.digital_twin.state.manager import StateManager
+from vectis.streaming.events import StateChange, StreamEvent
 
 log = get_logger(__name__)
 
-
-def _total_variation(prior: ScenarioSet, posterior: ScenarioSet) -> float:
-    """TV distance between two beliefs over the same scenarios: ½·Σ|Δprior|."""
-    post = {s.id: s.prior for s in posterior.scenarios}
-    return 0.5 * sum(abs(s.prior - post.get(s.id, 0.0)) for s in prior.scenarios)
+_DEFAULT_REGION = "liguria"
 
 
 class RealTimeUpdater:
-    """Stateful orchestrator: event in → (Bayesian update, maybe MC) → StateChange."""
+    """Route incoming events to the right digital twin and emit state changes."""
 
     def __init__(
         self,
+        manager: StateManager,
         *,
-        state: WorldState,
-        scenarios: ScenarioSet,
-        engine: VectorizedMonteCarloEngine | None = None,
-        config: SimulationConfig | None = None,
-        rerun_threshold: float = 0.02,
         debounce_seconds: float = 1.0,
+        default_region: str = _DEFAULT_REGION,
     ) -> None:
-        self._state = state
-        self._scenarios = scenarios  # current belief (prior → posterior over time)
-        self._engine = engine or VectorizedMonteCarloEngine()
-        self._updater = GaussianBayesianUpdater(state)
-        self._config = config or SimulationConfig(n_iterations=20_000, seed=7)
-        self._rerun_threshold = rerun_threshold
+        self._manager = manager
         self._debounce_seconds = debounce_seconds
-
-        self._lock = threading.Lock()
+        self._default_region = default_region
+        self._debounce_lock = threading.Lock()
         self._recent: dict[str, float] = {}  # dedupe_key → monotonic time last seen
-        self._scenario_risk: dict[str, float] = {}  # scenario_id → mean risk (last MC run)
-        self._risk = self._reduce_run(self._engine.run(state, scenarios, self._config))
-
-    # ── read-only views ──────────────────────────────────────────────────────
-    @property
-    def risk_state(self) -> RiskState:
-        """The current real-time risk picture."""
-        with self._lock:
-            return self._risk
 
     @property
-    def scenarios(self) -> ScenarioSet:
-        """The current (posterior) belief over scenarios."""
-        with self._lock:
-            return self._scenarios
+    def manager(self) -> StateManager:
+        return self._manager
 
-    # ── the swappable seam ───────────────────────────────────────────────────
+    def risk_state(self, region: str | None = None) -> RiskState | None:
+        """Current risk picture for ``region`` (default region if omitted)."""
+        twin = self._manager.get(region or self._default_region)
+        return twin.computed_risk_state if isinstance(twin, RegionTwin) else None
+
     def process(self, event: StreamEvent) -> StateChange | None:
-        """Apply one event. Returns a :class:`StateChange`, or ``None`` if debounced.
+        """Apply one event to its twin. Returns a :class:`StateChange`, or ``None``
+        if the event was debounced or no twin is registered for its region.
 
-        Synchronous and self-contained: safe to call from a thread, a background
-        task, or a future Celery/Kafka worker. Thread-safe via an internal lock.
+        Synchronous and transport-agnostic: safe to call from a background task,
+        a thread, or a future Celery/Kafka worker.
         """
-        with self._lock:
-            if self._is_duplicate(event):
-                log.info("stream.debounced", event_id=event.event_id, source=event.source)
-                return None
+        if self._is_duplicate(event):
+            log.info("stream.debounced", event_id=event.event_id, region=event.region)
+            return None
 
-            prior = self._scenarios
-            posterior = self._updater.update(prior, event.to_observation())
-            shift = _total_variation(prior, posterior)
-            self._scenarios = posterior
+        twin = self._manager.get(event.region)
+        if not isinstance(twin, RegionTwin):
+            log.warning("stream.no_twin", event_id=event.event_id, region=event.region)
+            return None
 
-            triggered = shift >= self._rerun_threshold
-            if triggered:
-                self._scenario_risk = self._scenario_means(
-                    self._engine.run(self._state, posterior, self._config)
-                )
-            self._risk = self._build_risk_state(posterior)
-
-            log.info(
-                "stream.processed",
-                event_id=event.event_id,
-                belief_shift=round(shift, 4),
-                triggered_rerun=triggered,
-                risk=round(self._risk.risk, 1),
-                confidence=round(self._risk.confidence, 3),
-            )
-            return StateChange(
-                event_id=event.event_id,
-                triggered_rerun=triggered,
-                belief_shift=shift,
-                risk=self._risk,
-            )
+        update = twin.update_from_observation(event.to_observation())
+        return StateChange(
+            event_id=event.event_id,
+            triggered_rerun=update.recomputed,
+            belief_shift=update.belief_shift,
+            risk=update.risk_state,
+        )
 
     # ── internals ────────────────────────────────────────────────────────────
     def _is_duplicate(self, event: StreamEvent) -> bool:
@@ -143,43 +92,24 @@ class RealTimeUpdater:
         """
         if self._debounce_seconds <= 0.0:
             return False
-        now = time.monotonic()
-        key = event.dedupe_key()
-        last = self._recent.get(key)
-        # Opportunistically evict stale keys so the map can't grow unbounded.
-        self._recent = {
-            k: t for k, t in self._recent.items() if now - t < self._debounce_seconds
-        }
-        self._recent[key] = now
-        return last is not None and (now - last) < self._debounce_seconds
-
-    def _scenario_means(self, run: SimulationRun) -> dict[str, float]:
-        return {o.scenario_id: o.risk.mean for o in run.outcomes}
-
-    def _reduce_run(self, run: SimulationRun) -> RiskState:
-        """Seed initial risk state from the baseline run (also caches per-scenario risk)."""
-        self._scenario_risk = self._scenario_means(run)
-        return self._build_risk_state(self._scenarios)
-
-    def _build_risk_state(self, scenarios: ScenarioSet) -> RiskState:
-        from vectis.core.schemas import RiskBand
-
-        risk = posterior_mixture_risk(scenarios, self._scenario_risk)
-        return RiskState(
-            region=self._state.region,
-            risk=risk,
-            band=RiskBand.from_score(risk),
-            confidence=scenario_confidence(scenarios),
-            scenario_priors={s.id: s.prior for s in scenarios.scenarios},
-        )
+        with self._debounce_lock:
+            now = time.monotonic()
+            key = event.dedupe_key()
+            last = self._recent.get(key)
+            # Evict stale keys so the map can't grow unbounded.
+            self._recent = {
+                k: t for k, t in self._recent.items() if now - t < self._debounce_seconds
+            }
+            self._recent[key] = now
+            return last is not None and (now - last) < self._debounce_seconds
 
 
 def build_default_updater() -> RealTimeUpdater:
-    """Construct the Liguria wildfire real-time updater used by the API.
+    """Construct the real-time updater with the Liguria climate-risk twin registered.
 
-    ponytail: hard-wired to the Liguria digital twin (the only live vertical).
-    Generalize to a per-region registry when a second region lands.
+    ponytail: single region for now. Register more ``RegionTwin``s (or other twins)
+    on the same manager as regions are added.
     """
-    state = liguria_wildfire_state()
-    scenarios = WildfireScenarioGenerator().generate(state)
-    return RealTimeUpdater(state=state, scenarios=scenarios)
+    manager = StateManager()
+    manager.register(RegionTwin("liguria"))
+    return RealTimeUpdater(manager)

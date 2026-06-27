@@ -22,8 +22,19 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-from vectis.core.schemas import RiskBand
+# RiskState now lives in the digital_twin layer (it is a twin's computed output);
+# re-exported here so existing `from vectis.streaming.events import RiskState` holds.
+from vectis.digital_twin.schemas import RiskState
 from vectis.simulation.probability.bayesian import Observation
+
+__all__ = [
+    "IngestEvent",
+    "RiskState",
+    "SensorReading",
+    "StateChange",
+    "StreamEvent",
+    "WeatherAlert",
+]
 
 
 def _utcnow() -> datetime:
@@ -40,6 +51,9 @@ class StreamEvent(BaseModel):
 
     event_id: str = Field(default_factory=_event_id)
     source: str = Field(description="Originating system/station identifier.")
+    region: str = Field(
+        default="liguria", description="Digital-twin id this event is routed to."
+    )
     observed_at: datetime = Field(default_factory=_utcnow)
 
     def to_observation(self) -> Observation:
@@ -53,7 +67,7 @@ class StreamEvent(BaseModel):
         double-counted by the Bayesian update (see ``updater.py`` debouncing).
         """
         obs = self.to_observation()
-        return f"{self.source}:{obs.variable}:{obs.value:.6g}"
+        return f"{self.region}:{self.source}:{obs.variable}:{obs.value:.6g}"
 
 
 class SensorReading(StreamEvent):
@@ -95,19 +109,6 @@ IngestEvent = Annotated[SensorReading | WeatherAlert, Field(discriminator="kind"
 
 
 # ── Outbound state ───────────────────────────────────────────────────────────
-class RiskState(BaseModel):
-    """The current real-time risk picture after the latest update."""
-
-    region: str
-    risk: float = Field(description="Posterior-weighted risk score, 0–100.")
-    band: RiskBand
-    confidence: float = Field(ge=0.0, le=1.0)
-    scenario_priors: dict[str, float] = Field(
-        default_factory=dict, description="Current (posterior) belief over scenarios."
-    )
-    updated_at: datetime = Field(default_factory=_utcnow)
-
-
 class StateChange(BaseModel):
     """Broadcast payload emitted when an event changes the risk picture."""
 

@@ -17,11 +17,19 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 
 from vectis.api.deps import get_broadcaster, get_updater
+from vectis.digital_twin.schemas import RiskState
 from vectis.streaming.broadcaster import ConnectionManager
-from vectis.streaming.events import IngestEvent, RiskState
+from vectis.streaming.events import IngestEvent
 from vectis.streaming.updater import RealTimeUpdater
 
 router = APIRouter(prefix="/api/v1/stream", tags=["stream"])
@@ -50,9 +58,12 @@ async def ingest_event(
 
 
 @router.get("/state")
-def current_state(request: Request) -> RiskState:
-    """The latest real-time risk picture (synchronous read)."""
-    return get_updater(request).risk_state
+def current_state(request: Request, region: str = "liguria") -> RiskState:
+    """The latest real-time risk picture for a region (synchronous read)."""
+    state = get_updater(request).risk_state(region)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"No twin registered for '{region}'.")
+    return state
 
 
 @router.websocket("/ws")

@@ -218,3 +218,54 @@ the Bayesian math honest (one measurement counted once).
 broadcaster are the only FastAPI-aware pieces. Replacing BackgroundTasks with
 Celery/Kafka means rewriting the dispatch glue (the router task) and the publish
 transport (the broadcaster) — `process()` and all of `simulation/` are untouched.
+
+---
+
+## 7. Digital Twin layer (Session 10)
+
+The math engines are generic calculators; the streaming layer moves data. Session
+10 adds the **entity** that ties them to the real world: a **Digital Twin** owns a
+region's physical state, evolves it as data arrives, and drives the engines to keep
+its risk current. Layering: `streaming → digital_twin → simulation/core` (never the
+reverse, never an LLM).
+
+```
+                         vectis/digital_twin/
+  ┌────────────────────────────────────────────────────────────────┐
+  │ entities/base.py   DigitalTwin ABC  (get_current_state /         │
+  │                    update_from_observation / predict_risk)       │
+  │ entities/region.py RegionTwin  ── physical RegionState:          │
+  │                      temperature_anomaly, humidity_level,        │
+  │                      vegetation_stress, recent_fire_history,     │
+  │                      + computed_risk_state                       │
+  │ transitions/base.py ClimateTransition (deterministic heuristics) │
+  │ state/manager.py    StateManager (in-memory twin registry)       │
+  │ schemas.py          RiskState, TwinUpdate                        │
+  └────────────────────────────────────────────────────────────────┘
+```
+
+**Deterministic transitions → probabilistic engine.** `update_from_observation`
+runs a fixed order so the two roles of an observation stay separate and correct:
+
+1. **Bayesian belief update against the *pre-transition* state** — the observation
+   is compared to what each scenario *predicted*, so e.g. a +4 °C reading (vs the
+   +2 °C estimate) correctly shifts mass toward the hotter/drier scenario.
+2. **Deterministic transition** evolves the *present* physical state
+   (`ClimateTransition`: a temperature reading sets `temperature_anomaly`; rain
+   raises `humidity_level`; vegetation stress relaxes toward the heat/moisture
+   balance `Δstress = temp·K_TEMP − humidity·K_HUM`). Simple heuristics — no physics
+   engine.
+3. **Monte Carlo re-run** over the *new* state × posterior beliefs (only if the
+   state changed or beliefs moved past a threshold), reduced to a `RiskState`
+   (`posterior_mixture_risk` + `scenario_confidence`).
+
+The twin's *only* engine-specific knowledge is `_to_world_state()` — the map from
+its domain fields onto the engine's `WorldState` variables (humidity → rainfall
+anomaly; vegetation stress + recent fires → ignition rate). Swap that mapping, the
+transition, and the scenarios and the same engines model a different entity — a
+`FinancialMarketTwin` sits beside `RegionTwin` under the same ABC.
+
+**Wired into streaming.** `RealTimeUpdater` (Session 9) is now a thin router:
+debounce → `StateManager.get(region)` → `twin.update_from_observation` → wrap the
+`TwinUpdate` in a `StateChange` for broadcast. The Liguria twin is registered at
+startup; a `WeatherAlert` for "liguria" flows straight into it.

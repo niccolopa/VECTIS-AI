@@ -4,9 +4,9 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-27** · End of **Session 9** (V2 Real-Time Intelligence Layer —
-`streaming/` ingest → Bayesian update → conditional MC re-run → WebSocket broadcast; 73 backend
-tests green).
+Last updated: **2026-06-27** · End of **Session 10** (V2 Digital Twin Foundation —
+`digital_twin/` package: `DigitalTwin` ABC + `RegionTwin` + deterministic transitions, wired into
+the streaming layer; 80 backend tests green).
 
 > **Session history:** S1 — full foundation + working vertical slice (agents/ML/API/
 > frontend). S2 — hardened the backend/data **foundation** (DB session layer, Alembic
@@ -498,7 +498,77 @@ light by design (no Kafka/Redis) but modular so they can drop in later. Zero LLM
 
 ---
 
+## Current Progress (Session 10 — Digital Twin Foundation — COMPLETE)
+
+Focus: **the structural paradigm for real-world entities that consume the engines.** A
+*Digital Twin* holds a physical state, evolves it deterministically from observations, and
+drives the Monte Carlo / Bayesian engines to compute its risk state. Built the foundation +
+the first concrete twin (Climate Risk / `RegionTwin`), wired into the Session-9 streaming
+layer. Engines stay generic calculators; the twin is the business logic that uses them.
+
+**What was built (all green: ruff clean, mypy clean, 80 pytest pass — was 73):** a new
+**`backend/vectis/digital_twin/`** package, correctly layered **`streaming → digital_twin →
+simulation/core`** (digital_twin imports zero streaming/web/LLM).
+- **`digital_twin/entities/base.py`** — the `DigitalTwin` ABC (`get_current_state` /
+  `update_from_observation` / `predict_risk`) + a `TwinState` marker base. Tiny and
+  calculator-free: *how* a twin maps its domain onto the engines is the concrete twin's job —
+  that's what lets a `FinancialMarketTwin` reuse the same engines beside `RegionTwin`.
+- **`digital_twin/entities/region.py`** — `RegionTwin` (the Climate Risk twin) + `RegionState`
+  (`temperature_anomaly`, `humidity_level`, `vegetation_stress`, `recent_fire_history`).
+  `update_from_observation` runs the canonical order: **Bayesian update against the
+  pre-transition state** → **deterministic transition** evolves the present → **MC re-run** over
+  the new state × posterior (only if state changed or belief shift ≥ threshold) →
+  `computed_risk_state`. Its only engine-specific knowledge is `_to_world_state()` (domain
+  fields → `WorldState` vars; defaults reproduce the Session-7 Liguria twin exactly). Per-twin
+  `threading.Lock`.
+- **`digital_twin/transitions/base.py`** — `StateTransition` ABC + `ClimateTransition`
+  (heuristics, **no physics engine**): temp/humidity/rain observations set their field; fires
+  accumulate; `vegetation_stress` relaxes toward `Δ = temp·K_TEMP − humidity·K_HUM`, recomputed
+  only when a driver moved (so unrelated obs can't drift it). `K_TEMP=1.0, K_HUM=0.1` balanced
+  so the Liguria default sits at equilibrium.
+- **`digital_twin/state/manager.py`** — `StateManager`, a thread-safe in-memory twin registry
+  (`register`/`get`/`all`/`count`/`deregister`); the interface a future Redis/DB store must meet.
+- **`digital_twin/schemas.py`** — `RiskState` (**moved here** from `streaming.events` — it's a
+  twin's computed output; re-exported from `streaming.events` for back-compat) + `TwinUpdate`.
+- **Streaming refactor:** `RealTimeUpdater` is now a thin **router** (debounce → `manager.get`
+  → `twin.update_from_observation` → wrap `TwinUpdate` in `StateChange`); the CPU-bound math
+  moved into the twin. `StreamEvent` gained a `region` field (default `liguria`) for routing;
+  `GET /stream/state?region=` resolves per-twin (404 if none). `build_default_updater()` now
+  registers the Liguria `RegionTwin`. **All 7 Session-9 streaming tests still pass unchanged.**
+- **`tests/digital_twin/test_region_twin.py`** — 7 tests: default state + baseline risk;
+  high-temp → veg-stress ↑; rain → humidity ↑ / stress ↓; unrelated obs doesn't drift stress;
+  observation updates state **and** recomputes risk (hotter_drier ↑, confidence ↑, risk ↑);
+  registry; `WeatherAlert` routed end-to-end into the twin.
+
+**Quality check (10k twins? `FinancialMarketTwin` beside it?):** Yes on both. Twins are
+independent in-memory objects with per-twin locks (no global serialization bottleneck — the
+router lock only guards the debounce dict, held briefly); the `StateManager` is a flat dict.
+The `DigitalTwin` ABC carries no climate/engine specifics, so a second twin type implements the
+same three methods with its own `TwinState`, transition, and `_to_world_state` mapping.
+
+---
+
 ## What Worked (decisions that succeeded — keep these)
+
+- **(S10) `DigitalTwin` ABC carries no calculator; the twin maps domain → engine.** The Monte
+  Carlo/Bayesian engines stay generic; each twin's *only* engine coupling is one
+  `_to_world_state()` method. This is the encapsulation the brief demanded and the thing that
+  makes a `FinancialMarketTwin` a sibling, not a rewrite.
+- **(S10) Ordering: Bayesian update on the *pre-transition* state, transition after.** An
+  observation plays two roles — evidence about which *future* unfolds (compared against the
+  prior state's scenario predictions) and a change to the *present* state. Running Bayes first
+  preserves discrimination (a +4 °C reading still favors hotter_drier vs the +2 °C estimate);
+  applying the transition after evolves the present for the next forecast. Getting this order
+  wrong silently flips the belief update.
+- **(S10) `RiskState` belongs to `digital_twin`, re-exported from `streaming`.** It's the twin's
+  computed output, so the dependency points `streaming → digital_twin` (correct layering); the
+  one-line re-export keeps Session-9 imports working with no churn.
+- **(S10) Vegetation stress only moves when a driver moved.** Recomputing the coupled stress on
+  *every* observation would let unrelated events (a fire count) silently drift it. Gating on
+  driver-changed keeps the heuristic honest and the tests deterministic.
+- **(S10) Per-twin locks, not one global lock.** The router lock guards only the debounce dict
+  (brief); each twin serializes its own updates. That's the difference between a 10k-twin system
+  and a single-threaded one.
 
 - **(S9) `RealTimeUpdater.process()` as a pure synchronous seam.** All ordering/decision logic
   (debounce → Bayes → significance → maybe-MC → RiskState) lives in one transport-agnostic
@@ -719,7 +789,7 @@ light by design (no Kafka/Redis) but modular so they can drop in later. Zero LLM
   `C408` rejects `dict(...)` literals, `I001` import ordering (stdlib `concurrent.futures` before
   third-party `numpy`). All trivially fixed; mypy is scoped to `vectis/` only (tests untyped is fine).
 
-## Next Steps (Session 10 — pick up here)
+## Next Steps (Session 11 — pick up here)
 
 **Done so far (do not redo):** S1 vertical slice; S2 DB session layer + migrations + readiness;
 S3 LangGraph engine + two-engine interface + extended ML metrics + auditable model selection;
@@ -733,40 +803,56 @@ update + Confidence Score** (`probability/bayesian` `GaussianBayesianUpdater`, `
 uncertainty`, `probability/calibration` blueprint; discrete exact-evidence Bayes in log-space;
 10 tests); **S9 the Real-Time Intelligence Layer** (`streaming/` package: `events`/`updater`/
 `broadcaster` + `api/routers/stream.py`; 202-ingest → BackgroundTask → debounce → Bayesian update
-→ conditional MC re-run → WebSocket broadcast; 7 tests). Note: the **NASA FIRMS / live-data work
-was never done** — it remains a top backend priority and feeds both V2 State Estimation *and* the
-S9 streaming layer (which currently ingests synthetic events). The **`states/base.py`
-`StateEstimator` and `forecasting/Forecast` impls are still ABC-only** — deferred again below.
+→ conditional MC re-run → WebSocket broadcast; 7 tests); **S10 the Digital Twin Foundation**
+(`digital_twin/` package: `DigitalTwin` ABC + `RegionTwin` + `ClimateTransition` + `StateManager`;
+deterministic transitions feed the probability engine; streaming refactored to route events to
+twins; 7 tests). Note: the **NASA FIRMS / live-data work was never done** — top backend priority,
+feeds State Estimation *and* the streaming/twin layers (both still ingest synthetic events). The
+**`states/base.py` `StateEstimator` and `forecasting/Forecast` impls are still ABC-only**, and the
+twin + belief state is **in-memory only (not persisted)** — all deferred below.
 
-### Session 10 PRIMARY: Digital Twin Foundation
+### Session 11 PRIMARY: LLM Simulation Agents
 
-The streaming layer can now react to events, but it reacts on a **hand-set** Liguria twin
-(`liguria_wildfire_state()`) and **synthetic** events. Session 10 should make the digital twin
-*real and persistent* — still **deterministic libraries only, no LLMs in the math**:
+Everything the twins/engines produce is pure numbers. Session 11 brings the **V1 LLM "Analyst"
+discipline to the V2 layer**: agents that *read* the twin's `RiskState` / a `SimulationRun` /
+`Forecast` and narrate it — **never recompute it** (the Golden Rule: LLMs never do the math).
+This re-connects the `agents/` layer (decoupled since V2 began) to the simulation output.
 
-- **`states/base.py` impl → `SampleStateEstimator`.** Build a `WorldState` (per-variable
-  uncertainty) from the V1 feature pipeline (`data/pipeline/`) instead of the hand-set factory, so
-  the twin reflects estimated reality. Wire it into `build_default_updater()` so streaming starts
-  from an estimated state. (Carried from S8/S9.)
-- **Live observation source → the S9 streaming loop.** Replace synthetic ingest with a real feed:
-  **NASA FIRMS** active-fire detections (then ERA5 weather) mapped into `SensorReading`/
-  `WeatherAlert` events. The streaming plumbing already exists — this is a connector + a poller
-  that POSTs to `/stream/ingest` (or calls `updater.process` directly). Keep offline the default.
-- **Persist the twin + belief history.** The `RealTimeUpdater` state is in-memory only (lost on
-  restart). Add an ORM-backed store for `WorldState` snapshots + the posterior `ScenarioSet` over
-  time, so the twin survives restarts and the belief trajectory is queryable/auditable.
-- **`forecasting/` impl → public `Forecast`.** Adapt a `SimulationRun` into a `Forecast` (mixture
-  over scenarios weighted by **posterior** priors → single horizon distribution + per-band
-  probabilities; reuse `posterior_mixture_risk` + `scenario_confidence`) + an API endpoint. Then
-  the V1 **Analyst** agent that *reads* and narrates it (never recomputes). (Carried from S8.)
+- **A `SimulationAnalyst` agent.** Reuse the V1 `Agent` + `RunContext` + LLM factory
+  (`agents/llm/`, default `mock` → deterministic, offline). Input: a twin's `RiskState` +
+  scenario posterior (+ later a `Forecast`). Output: a structured, evidence-backed narrative
+  ("risk rose to 74/100 because the posterior shifted to *hotter & drier* after the +4 °C alert").
+  It must cite the numbers it was given and add none of its own — mirror the V1
+  LLM-narrates-not-decides + deterministic-`mock` pattern so CI stays key-free and reproducible.
+- **Keep the boundary structural.** The agent imports *from* `digital_twin`/`simulation` (reads
+  their schemas); those layers must keep importing **zero** `agents` (verify with the existing
+  import-time assert). The LLM sits strictly *outside* the math loop.
+- **Expose it.** An endpoint (e.g. `POST /api/v1/stream/state/{region}/explain` or a field on the
+  `StateChange` broadcast) that returns the narrative alongside the numbers, so the frontend can
+  show *why* the risk moved. Optionally a `Critic`-style check that the narrative's claimed numbers
+  match the `RiskState` (catch hallucinated figures).
+
+Carry-over backlog (still valuable, in priority order):
+
+- **`forecasting/` impl → public `Forecast`** (mixture over scenarios weighted by posterior priors
+  → horizon distribution + per-band probabilities; reuse `posterior_mixture_risk` +
+  `scenario_confidence`). The `SimulationAnalyst` above is its most natural first consumer.
+- **`states/base.py` impl → `SampleStateEstimator`.** Build a `WorldState` from the V1 feature
+  pipeline (`data/pipeline/`) and feed it into `RegionTwin` so the twin starts from estimated
+  reality, not the default `RegionState`. (Carried from S8/S9/S10.)
+- **Live observation source — NASA FIRMS** (then ERA5) mapped into `SensorReading`/`WeatherAlert`
+  events; a poller calls `updater.process` / POSTs `/stream/ingest`. Keep offline the default.
+- **Persist the twin + belief history.** `StateManager` + twin state are in-memory (lost on
+  restart). Add an ORM-backed store for `RegionState` + posterior `ScenarioSet` snapshots over
+  time, so twins survive restarts and the belief trajectory is queryable/auditable.
 - **Calibration:** `WildfireHazardModel` coefficients are illustrative (`ponytail:` in
   `models/wildfire.py`); `probability/calibration.py` reliability-curve + recalibration are
   blueprint stubs. Once FIRMS labels exist, fit the hazard and log resolved forecasts into a
   `Calibrator` so `brier_score` becomes a tracked metric.
-- **Streaming hardening (when scaling out):** the S9 layer is single-process/in-memory by design
-  (global lock, in-memory debounce dict, in-process WebSocket fan-out). To scale: swap the
-  broadcaster for Redis pub-sub, the debounce dict for a Redis TTL key, and BackgroundTasks for a
-  Celery/Kafka worker — `RealTimeUpdater.process()` stays unchanged (that's the whole point).
+- **Streaming/twin hardening (when scaling out):** in-memory by design (per-twin locks, in-memory
+  debounce dict + twin registry, in-process WebSocket fan-out). To scale: `StateManager` → Redis/DB,
+  broadcaster → Redis pub-sub, debounce dict → Redis TTL key, BackgroundTasks → Celery/Kafka
+  worker — `RealTimeUpdater.process()` and `twin.update_from_observation()` stay unchanged.
 
 0. **Run `docker compose up --build` once** on a machine with Docker (carried from S4/S5). Verify
    the new backend healthcheck flips healthy after migrate+seed+train and the frontend then starts
@@ -807,7 +893,7 @@ Then, highest-leverage:
 cd backend && python -m venv .venv && .venv/Scripts/activate   # (Windows)
 pip install -e ".[dev]"            # add ".[langgraph]" to use the LangGraph engine
 python -m vectis.scripts.demo       # see the whole system work in ~3s, offline
-pytest                             # 73 tests, all green
+pytest                             # 80 tests, all green
 
 # Frontend
 cd frontend && npm install && npm run dev    # http://localhost:5173 (proxies /api → :8000)
