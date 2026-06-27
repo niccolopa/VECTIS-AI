@@ -177,12 +177,15 @@ class SimulationConfig(BaseModel):
     )
     n_workers: int = Field(
         default=1,
-        ge=1,
+        ge=0,
         description=(
             "Number of independent RNG streams the draws are split across. With "
             "1 (default) the engine runs a single vectorized kernel — fastest for "
-            "cheap per-sample math. >1 enables chunked execution. Reproducibility "
-            "is defined per ``(seed, n_workers)`` pair (changing either changes the draws)."
+            "cheap per-sample math. >1 enables chunked execution. **0 = auto** "
+            "(os.cpu_count()-1). Reproducibility is defined per ``(seed, n_workers)`` "
+            "pair (changing either changes the draws); note that ``0=auto`` resolves "
+            "to a machine-dependent worker count, so it is reproducible only on the "
+            "same machine — set an explicit ``n_workers`` for cross-machine determinism."
         ),
     )
     parallel: bool = Field(

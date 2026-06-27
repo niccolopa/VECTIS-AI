@@ -36,6 +36,10 @@ demo: ## Run one end-to-end analysis and print the Decision Report (no API key n
 demo-v2: ## Run the V2 end-to-end Liguria wildfire intelligence demo (offline, no API key)
 	cd $(BACKEND) && $(PY) -m vectis.scripts.demo_v2
 
+.PHONY: stress
+stress: ## Run the 1,000,000-scenario Monte Carlo stress test (serial vs parallel, honest verdict)
+	cd $(BACKEND) && $(PY) scripts/stress_test.py
+
 .PHONY: train
 train: ## Train + evaluate models on the sample and write the model card
 	cd $(BACKEND) && $(PY) -m vectis.scripts.train

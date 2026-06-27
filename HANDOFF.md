@@ -4,9 +4,9 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-27** · End of **Session 12** (First Real VECTIS Demo —
-`scripts/demo_v2.py` drives the full V2 pipeline end to end as a tactical stdlib console;
-93 backend tests green).
+Last updated: **2026-06-27** · End of **Session 13** (Scale & Performance — 1M-scenario Monte
+Carlo, distributed (Ray/Dask) abstraction + local stub, TTL+LRU caching, honest stress-test
+verdict; 101 backend tests green).
 
 > **Session history:** S1 — full foundation + working vertical slice (agents/ML/API/
 > frontend). S2 — hardened the backend/data **foundation** (DB session layer, Alembic
@@ -646,7 +646,74 @@ update reads better for a given audience, lower the alert severity/magnitude or 
 
 ---
 
+## Current Progress (Session 13 — Scale & Performance — COMPLETE)
+
+Focus: **scale the Monte Carlo engine to 1,000,000+ scenarios** with mathematical exactness and
+reproducibility — local multiprocessing + a dependency-free distributed abstraction + caching —
+and measure honestly whether parallelism actually helps.
+
+**Headline (measured, `make stress`):** 1M iterations × 3 branches = **3M trajectory evaluations
+in ~0.8 s single-thread (~3.6 M evals/s), ~72 MB peak, no leak**. Multiprocessing is **~12× slower**
+(Windows `spawn` re-imports the scientific stack per worker + pickles result arrays back), so
+`parallel` stays off by default. Warm cache hit is **~6,600× faster** than recomputing.
+
+**What was built (all green: ruff clean, mypy clean on 100 files, 101 pytest pass — was 93):**
+- **`engine/runner.py` refactor.** `run()` now builds *all* scenarios' chunks up front and
+  dispatches them through **one** `ProcessPoolExecutor` (was one pool *per scenario* → 3× the
+  spawn cost; this alone cut the 1M parallel time from ~40 s to ~10–15 s). Extracted
+  `resolve_workers(n_workers)` (`0` ⇒ auto `os.cpu_count()-1`), `_build_chunks` (the seeded
+  sharding), and `_dispatch` (the pluggable executor). Math is byte-identical to before (same
+  per-scenario chunks, same order, sliced back per scenario).
+- **`engine/distributed.py`** — `DistributedMonteCarloEngine` (subclasses the vectorized engine,
+  overrides *only* `_dispatch`→`_cluster_map`, reusing sharding/RNG/reduction) + `ClusterClient`
+  Protocol + `RayEngineAdapter` + `LocalClusterStub` (a runnable `submit`/`gather` futures stub
+  that mirrors Ray's `remote`/`get`; **`ray` never imported**). A distributed run is byte-identical
+  to serial for the same `(seed, n_workers)`.
+- **`caching.py`** — `run_key(state, scenarios, config)` (sha256 of canonical JSON, **excluding the
+  volatile `WorldState.estimated_at`** so semantically-identical states hash equal) + a TTL+LRU
+  `SimulationCache` + `MemoizingMonteCarloEngine` (decorator over any engine — caching orthogonal
+  to the math).
+- **`schemas.py`** — `SimulationConfig.n_workers` relaxed `ge=1`→`ge=0` (`0=auto`), with the
+  cross-machine-determinism caveat documented.
+- **`scripts/stress_test.py`** (`make stress`) — initializes the Liguria twin + observation, runs
+  1M serial vs multiprocessing vs distributed-stub, checks parallel==serial byte-identical, demos
+  the cache, measures peak memory (`tracemalloc`), and **prints an honest verdict** computed from
+  the measured times. `if __name__=="__main__"` guard (Windows spawn), self-bootstraps `sys.path`.
+- **`tests/simulation/test_performance.py`** — 8 tests: 1M executes (`@pytest.mark.slow`); cache
+  intercepts identical runs (engine called once) + misses on changed inputs + key ignores
+  timestamp + TTL expiry; parallel==serial 100k byte-identical (`slow`); distributed adapter ==
+  serial; `resolve_workers` auto. Registered the `slow` marker in `pyproject.toml`.
+
+**RNG reproducibility across workers (how):** entropy is isolated by
+`numpy.random.SeedSequence(seed).spawn(n_workers)` — each worker reconstructs its own `Generator`
+from its spawned child seed, so a chunk's draws depend *only* on `(seed, its index in the split)`,
+never on import order, worker count beyond the agreed split, or where it physically runs. The
+sharding is fixed in `_build_chunks`; only `_dispatch` (local pool vs cluster vs serial) varies.
+Therefore serial, multiprocessing, and the distributed stub all produce **byte-identical** draws
+for the same `(seed, n_workers)` — asserted in the stress test and three tests.
+
+**Quality-check answers (honest):** NumPy handles the 1M arrays fine (~72 MB peak, no leak — 8 MB
+per scenario array, transient, not retained). And **yes, multiprocessing pickling/spawn overhead
+makes it slower than single-thread** for this cheap workload (~12×) — documented explicitly in the
+stress-test console output and the docs, not hidden.
+
+---
+
 ## What Worked (decisions that succeeded — keep these)
+
+- **(S13) One pool per run, not one per scenario.** Building all scenarios' chunks up front and
+  dispatching once removed a 3× process-spawn tax (40 s → ~10–15 s for the 1M parallel path) and
+  maps cleanly onto a single cluster `gather`. Math unchanged (same chunks, same order).
+- **(S13) Distributed = override dispatch only.** `DistributedMonteCarloEngine` reuses the exact
+  sharding/RNG/reduction and swaps just *where* chunks run, so a Ray/Dask run literally cannot
+  produce different numbers than local. The `LocalClusterStub` keeps it runnable + tested with zero
+  new dependency; real Ray is a drop-in behind the `ClusterClient` Protocol.
+- **(S13) Caching as a decorator engine, keyed on semantic inputs.** `MemoizingMonteCarloEngine`
+  wraps any engine; excluding `estimated_at` from the key is the subtle bit that makes hits
+  actually happen (otherwise the timestamp defeats every lookup). TTL+LRU is pure stdlib.
+- **(S13) Honest measurement over assumed speedup.** Reused the S7 finding and *proved* it at 1M:
+  cheap vectorized math doesn't benefit from multiprocessing; the stress test computes and prints
+  the verdict every run rather than asserting a hoped-for win. Parallel stays off by default.
 
 - **(S12) The demo logic lives in a testable package module; the top-level script is a 3-line
   shim.** `vectis.scripts.demo_v2.run_demo(...)` returns a `DemoResult`, so the *same* flow the
@@ -918,7 +985,7 @@ update reads better for a given audience, lower the alert severity/magnitude or 
   `C408` rejects `dict(...)` literals, `I001` import ordering (stdlib `concurrent.futures` before
   third-party `numpy`). All trivially fixed; mypy is scoped to `vectis/` only (tests untyped is fine).
 
-## Next Steps (Session 13 — pick up here)
+## Next Steps (Session 14 — pick up here)
 
 **Done so far (do not redo):** S1 vertical slice; S2 DB session layer + migrations + readiness;
 S3 LangGraph engine + two-engine interface + extended ML metrics + auditable model selection;
@@ -939,38 +1006,41 @@ twins; 7 tests); **S11 the LLM Simulation Agents** (`agents/board/` package: Lan
 `Analyst → Scenario → Debate → Critic` board + `DecisionIntelligenceReport` + Math Firewall +
 `POST /api/v1/intelligence/reports`; 9 tests); **S12 the first end-to-end demo** (`scripts/
 demo_v2.py` + `scripts/run_demo_liguria.py` + `make demo-v2`: full pipeline, 100k MC, tactical
-stdlib console; 4 integration tests). Note: the **NASA FIRMS / live-data work was never done** —
-top backend priority, feeds State Estimation *and* the streaming/twin layers (both still ingest
-**synthetic** events; the demo's alerts are scripted). The **`states/base.py` `StateEstimator` and
-`forecasting/Forecast` impls are still ABC-only**, the twin + belief state is **in-memory only (not
-persisted)**, and **`docker compose up --build` has still never been run here** (item 0).
+stdlib console; 4 integration tests); **S13 Scale & Performance** (`engine/distributed.py` Ray/Dask
+abstraction + `LocalClusterStub`, `caching.py` TTL+LRU memoizer, one-pool runner refactor,
+`n_workers=0` auto, `scripts/stress_test.py` 1M run with honest verdict; 8 tests). Note: the **NASA
+FIRMS / live-data work was never done** — top backend priority, feeds State Estimation *and* the
+streaming/twin layers (both still ingest **synthetic** events). The **`states/base.py`
+`StateEstimator` and `forecasting/Forecast` impls are still ABC-only**, the twin + belief state is
+**in-memory only (not persisted)**, the board/`RealTimeUpdater` are **synchronous** (no async LLM
+path), and **`docker compose up --build` has still never been run here** (item 0).
 
-### Session 13 PRIMARY: Scale & Performance
+### Session 14 PRIMARY: VECTIS V2 Productization
 
-The platform works end to end for *one* region with *one* twin in memory. Session 13 should make
-it **fast and scalable under load** — measure first, then fix the real bottlenecks (don't optimize
-blind). Likely spine:
+The engine, twin, real-time loop, AI board, demo, and scale story are all complete and green
+(101 backend tests). Session 14 should turn the *capability* into a *product* a user can actually
+deploy and operate — close the gap between "runs the demo" and "runs in production." Suggested
+spine (pick the highest-leverage; don't try all):
 
-- **Benchmark harness.** A `scripts/bench_v2.py` (or `pytest-benchmark`) that measures: single MC
-  run latency vs `n_iterations` (100k baseline ~70 ms — confirm), `RealTimeUpdater.process`
-  throughput (events/sec), and `SimulationBoardService` latency (mock). Establish numbers before
-  touching code — the S7 "vectorization crushes it" lesson means the MC is probably *not* the
-  bottleneck; the board/LLM and per-event MC re-runs likely are.
-- **Many twins, concurrently.** Drive N `RegionTwin`s (10 → 1k → 10k) through the `StateManager` +
-  `RealTimeUpdater` under concurrent ingest; confirm the **per-twin locks** (S10) actually give
-  parallel throughput and the router's debounce lock isn't a global chokepoint. Measure memory per
-  twin (each holds a `ScenarioSet` + cached scenario risk — should be tiny; the MC arrays are
-  transient). This is the S10 "10k twins?" quality-check claim — now *prove* it with numbers.
-- **Turn on the parallelism that's already built.** S7 shipped the `ProcessPoolExecutor` path
-  (`parallel=True`, `n_workers>1`) but left it off (cheap math). If per-sample cost grows (richer
-  hazard physics) or many twins contend, measure whether it helps; otherwise keep it off and say so.
-- **Cache / avoid redundant MC.** The twin re-runs 100k MC on *every* state-changing observation.
-  Under a burst, debounce + the belief-shift threshold already cut some; consider coalescing rapid
-  events per twin and a cheaper "re-weight only" path when the *state* didn't materially move.
-- **Async board + provider.** The LangGraph board is synchronous; for many concurrent reports a
-  real LLM provider would dominate latency. Consider an async provider path and bounded concurrency.
-- **Set SLOs and a perf gate.** Pick targets (e.g. p95 ingest→RiskState < X ms at N twins) and add
-  a lightweight perf check so regressions are caught.
+- **Persistence (most-deferred, highest value).** Twins + belief history are in-memory and lost on
+  restart. Add an ORM-backed store (reuse the S2 `database/` session layer + Alembic) for
+  `RegionState` + posterior `ScenarioSet` snapshots over time, so twins survive restarts and the
+  belief trajectory is queryable/auditable. `StateManager` becomes the read-through cache over it.
+- **The V2 frontend (the demo's other half).** The console proves the pipeline; now surface it in
+  the S4/S6 React app: `GET /stream/state`, the live `WS /stream/ws` push, and
+  `POST /intelligence/reports` (render the `DecisionIntelligenceReport` — analyst brief, scenario
+  storylines, debate, red-team). Report JSON is already frontend-ready; wire real risk into
+  `GlobeWidget` (S6 TODO). This is what makes V2 *visible*.
+- **Run it for real — close the loops.** (a) `docker compose up --build` once (item 0, carried from
+  S4/S5) — the last unvalidated piece of "clone → run". (b) The **NASA FIRMS** connector so at
+  least one ingested observation is a genuine active-fire detection, not synthetic. (c) A real
+  `OpenAIProvider`/`AnthropicProvider` behind `LLMProvider` for a *keyed* demo (mock stays default).
+- **`forecasting/` impl → public `Forecast`** + endpoint (mixture over scenarios by posterior
+  priors → horizon distribution + per-band probabilities; reuse `posterior_mixture_risk` +
+  `scenario_confidence`). Natural next contract for the frontend and the board.
+- **Operability:** AuthN/Z (API keys/JWT) ahead of any deployment; structured request logging +
+  basic metrics on the V2 endpoints; the async board/provider path (deferred from S13) if concurrent
+  report load is real. Multi-stage nginx frontend image (deferred since S5) when shipping.
 
 Carry-over backlog (still valuable, in priority order):
 
@@ -1040,8 +1110,9 @@ Then, highest-leverage:
 cd backend && python -m venv .venv && .venv/Scripts/activate   # (Windows)
 pip install -e ".[dev]"            # add ".[langgraph]" to use the LangGraph engine
 python -m vectis.scripts.demo       # see the whole system work in ~3s, offline
-pytest                             # 93 tests, all green
+pytest                             # 101 tests, all green
 python -m vectis.scripts.demo_v2    # watch the full V2 pipeline run (offline, ~1s)
+python scripts/stress_test.py       # 1M-scenario Monte Carlo + honest perf verdict
 
 # Frontend
 cd frontend && npm install && npm run dev    # http://localhost:5173 (proxies /api → :8000)

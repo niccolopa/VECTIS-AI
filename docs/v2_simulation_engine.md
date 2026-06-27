@@ -342,3 +342,43 @@ drier* branch — the math and the analyst narrative side by side, Math Firewall
 intact (numbers = engine, prose = analysts). Runtime ~1 s, offline, key-free.
 `run_demo(...)` returns a `DemoResult` (baseline/final `RiskState` + report) so the
 same flow is asserted end-to-end in `tests/integration/test_end_to_end_demo.py`.
+
+---
+
+## 10. Scale & performance (Session 13)
+
+The engine scales from 100k to **1,000,000+ scenarios** along three axes — local
+parallelism, a distributed abstraction, and caching — measured by
+`scripts/stress_test.py` (`make stress`).
+
+**Local parallelism (multiprocessing).** `runner.py` shards a run into
+`n_workers` chunks (`n_workers=0` ⇒ auto = `os.cpu_count()-1`) and now builds *all*
+scenarios' chunks up front and dispatches them through **one** `ProcessPoolExecutor`
+(not one pool per scenario). RNG entropy is isolated per worker via
+`SeedSequence(seed).spawn(n_workers)`, so **serial and parallel are byte-identical
+for the same `(seed, n_workers)`** — proven in the stress test and `test_performance`.
+Reproducibility holds per `(seed, n_workers)`; `0=auto` is machine-dependent (set an
+explicit `n_workers` for cross-machine determinism).
+
+**Distributed abstraction (`engine/distributed.py`).** `DistributedMonteCarloEngine`
+subclasses the vectorized engine and overrides *only dispatch* — it maps the same
+sharded, seeded chunks through a `ClusterClient` (`submit`/`gather` futures) instead
+of a local pool, so a cluster run is byte-identical to a local one. `RayEngineAdapter`
++ `LocalClusterStub` are a runnable, dependency-free stand-in that mirrors Ray's
+`remote`/`get` API; going live is a drop-in (`ray.remote(_simulate_chunk)` /
+`ray.get(...)`) — `ray` is never imported, and the chunk payloads are already picklable.
+
+**Caching (`caching.py`).** `MemoizingMonteCarloEngine` wraps any engine; a TTL+LRU
+`SimulationCache` keyed by a hash of `(WorldState, ScenarioSet, SimulationConfig)`
+(excluding the volatile `estimated_at` timestamp) returns the prior `SimulationRun`
+instantly for identical back-to-back requests — a warm hit is **~6,000× faster** than
+recomputing 1M scenarios.
+
+**Honest verdict (the quality check).** For VECTIS's *cheap* per-sample math (a
+vectorized logistic), **a single NumPy thread wins**: 1M×3 = 3M evaluations in
+~0.8 s (~3.6 M evals/s) at ~72 MB peak — no leak. Multiprocessing is ~12× *slower*
+because Windows `spawn` re-imports the scientific stack in every worker and pickles
+result arrays back, costing more than the compute it parallelizes. So `parallel`
+stays **off by default**; turn it on (or go distributed) only when per-sample cost
+grows — expensive physics per draw, not cheap math. The stress test prints this
+verdict from the measured numbers every run.

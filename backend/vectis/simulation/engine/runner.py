@@ -19,6 +19,7 @@ layer; every number comes from numpy/scipy.
 
 from __future__ import annotations
 
+import os
 import uuid
 from concurrent.futures import ProcessPoolExecutor
 
@@ -43,6 +44,13 @@ _THRESHOLDS: dict[str, float] = {"high": 50.0, "severe": 75.0}
 # A chunk of work shipped to a (possibly remote) worker. All fields are picklable:
 # pydantic models, a numpy SeedSequence, an int, and a frozen-dataclass hazard model.
 _ChunkArgs = tuple[WorldState, Scenario, np.random.SeedSequence, int, HazardModel]
+
+
+def resolve_workers(n_workers: int) -> int:
+    """Resolve the worker count: ``0`` ⇒ auto (``os.cpu_count()-1``, ≥1); else as given."""
+    if n_workers >= 1:
+        return n_workers
+    return max((os.cpu_count() or 2) - 1, 1)
 
 
 def _simulate_chunk(args: _ChunkArgs) -> np.ndarray:
@@ -91,7 +99,27 @@ class VectorizedMonteCarloEngine(MonteCarloEngine):
         scenarios: ScenarioSet,
         config: SimulationConfig,
     ) -> SimulationRun:
-        outcomes = [self._outcome(state, scenario, config) for scenario in scenarios.scenarios]
+        # Build every scenario's chunks up front and dispatch them through ONE
+        # executor (or one cluster gather). This is the efficient sharding for big
+        # runs: a single process pool serves all scenarios — not one pool each,
+        # which would pay the spawn/import cost per scenario. Results are sliced
+        # back per scenario in submission order, so the math is unchanged.
+        n_workers = resolve_workers(config.n_workers)
+        all_chunks: list[_ChunkArgs] = []
+        spans: list[tuple[Scenario, int, int]] = []
+        for scenario in scenarios.scenarios:
+            chunks = self._build_chunks(state, scenario, config, n_workers)
+            spans.append((scenario, len(all_chunks), len(all_chunks) + len(chunks)))
+            all_chunks.extend(chunks)
+
+        results = self._dispatch(all_chunks, parallel=config.parallel, n_workers=n_workers)
+
+        outcomes = []
+        for scenario, lo, hi in spans:
+            risk = np.concatenate(results[lo:hi]) * 100.0  # (N,) on the 0–100 scale
+            outcomes.append(
+                ScenarioOutcome(scenario_id=scenario.id, risk=_reduce(risk, config.retain_samples))
+            )
         return SimulationRun(
             run_id=uuid.uuid4().hex,
             region=state.region,
@@ -99,31 +127,36 @@ class VectorizedMonteCarloEngine(MonteCarloEngine):
             outcomes=outcomes,
         )
 
-    def _outcome(
-        self, state: WorldState, scenario: Scenario, config: SimulationConfig
-    ) -> ScenarioOutcome:
-        fire_prob = self._simulate(state, scenario, config)  # (N,) in [0, 1]
-        risk = fire_prob * 100.0  # map to the shared 0–100 risk scale
-        return ScenarioOutcome(
-            scenario_id=scenario.id, risk=_reduce(risk, config.retain_samples)
-        )
+    def _build_chunks(
+        self, state: WorldState, scenario: Scenario, config: SimulationConfig, n_workers: int
+    ) -> list[_ChunkArgs]:
+        """Shard the request into ``n_workers`` independent, picklable work units.
 
-    def _simulate(
-        self, state: WorldState, scenario: Scenario, config: SimulationConfig
-    ) -> np.ndarray:
-        n_workers = max(config.n_workers, 1)
+        Entropy is isolated per worker via ``SeedSequence(seed).spawn(n_workers)``
+        — the canonical numpy pattern — so each chunk's draws depend only on its
+        spawned seed. This is what makes serial and parallel execution at the same
+        ``(seed, n_workers)`` byte-identical: the sharding (here) is fixed; only the
+        *dispatch* (below) differs.
+        """
         children = np.random.SeedSequence(config.seed).spawn(n_workers)
         sizes = split_iterations(config.n_iterations, n_workers)
-        chunks: list[_ChunkArgs] = [
+        return [
             (state, scenario, child, size, self.hazard)
             for child, size in zip(children, sizes, strict=True)
         ]
 
-        if config.parallel and n_workers > 1:
-            with ProcessPoolExecutor(max_workers=n_workers) as pool:
-                results = list(pool.map(_simulate_chunk, chunks))
-        else:
-            # n_workers == 1 ⇒ a single full-size vectorized draw (the fast path).
-            results = [_simulate_chunk(chunk) for chunk in chunks]
+    def _dispatch(
+        self, chunks: list[_ChunkArgs], *, parallel: bool, n_workers: int
+    ) -> list[np.ndarray]:
+        """Execute the chunks. Local strategy: process pool, or serial in-process.
 
-        return np.concatenate(results)
+        Overridden by :class:`~vectis.simulation.engine.distributed.
+        DistributedMonteCarloEngine` to submit chunks to a cluster scheduler — the
+        sharding/RNG/reduction above are reused unchanged, so only *where* the math
+        runs differs, never the result.
+        """
+        if parallel and n_workers > 1:
+            with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                return list(pool.map(_simulate_chunk, chunks))
+        # n_workers == 1 ⇒ a single full-size vectorized draw (the fast path).
+        return [_simulate_chunk(chunk) for chunk in chunks]

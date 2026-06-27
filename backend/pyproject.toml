@@ -87,4 +87,5 @@ addopts = "-q --strict-markers"
 markers = [
     "integration: end-to-end orchestrator/pipeline tests",
     "model: ML metric-threshold tests",
+    "slow: heavy performance/stress tests (e.g. 1M Monte Carlo scenarios)",
 ]
