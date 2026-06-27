@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+*.local
+
+# Data staging (generated, reproducible) — keep structure + sample/schema data
+data/raw/*
+data/processed/*
+data/validation/*
+data/pipelines/*
+data/cache/
+!data/**/.gitkeep
+backend/artifacts/
+*.joblib
+*.pkl
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+.claude/
+.env

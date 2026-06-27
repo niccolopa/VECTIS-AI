@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* VECTIS console base — enterprise dark, dense, data-first. */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-text font-sans antialiased;
+    font-size: 14px;
+  }
+  /* Calm, thin scrollbars suited to dense data surfaces. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border-strong rounded;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+}
+
+@layer components {
+  /* Shared label/eyebrow used across panels. */
+  .eyebrow {
+    @apply text-2xs uppercase tracking-wider text-muted-2;
+  }
+  /* MapLibre fills its container. */
+  .maplibregl-map {
+    @apply h-full w-full;
+  }
+}

@@ -1,0 +1,64 @@
+# VECTIS full-stack local environment: PostGIS + FastAPI backend + React frontend.
+# `docker compose up --build` brings the whole platform online. The backend
+# seeds the deterministic Liguria sample on first start, so the demo works with
+# zero external API keys (LLM provider defaults to `mock`).
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: vectis
+      POSTGRES_PASSWORD: vectis
+      POSTGRES_DB: vectis
+    ports:
+      - "5432:5432"
+    volumes:
+      - vectis_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vectis -d vectis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      VECTIS_ENV: development
+      VECTIS_DATABASE_URL: postgresql+psycopg://vectis:vectis@db:5432/vectis
+      VECTIS_LLM_PROVIDER: ${VECTIS_LLM_PROVIDER:-mock}
+      VECTIS_ANTHROPIC_API_KEY: ${VECTIS_ANTHROPIC_API_KEY:-}
+      VECTIS_CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Apply DB migrations, seed sample + train baseline model, then serve.
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m vectis.scripts.generate_sample &&
+             python -m vectis.scripts.train &&
+             uvicorn vectis.api.main:app --host 0.0.0.0 --port 8000"
+    # /health only answers once migrate+seed+train finish and uvicorn is serving,
+    # so this gates the frontend on a fully-ready backend. urllib avoids adding
+    # curl to the slim image. start_period covers the one-time train on boot.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  vectis_db:
