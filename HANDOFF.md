@@ -4,8 +4,8 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-27** · End of **Session 5** (+ post-S5 maintenance: tsconfig `baseUrl`
-deprecation fix).
+Last updated: **2026-06-27** · End of **Session 8** (V2 Probability & Bayesian Update —
+`GaussianBayesianUpdater` + Confidence Score; 66 backend tests green).
 
 > **Session history:** S1 — full foundation + working vertical slice (agents/ML/API/
 > frontend). S2 — hardened the backend/data **foundation** (DB session layer, Alembic
@@ -403,7 +403,76 @@ optionally parallel (process-pool output is byte-identical to the serial path).
 
 ---
 
+## Current Progress (Session 8 — Probability & Bayesian Update — COMPLETE)
+
+Focus: **close the V2 learn-from-data loop** — take a Monte Carlo baseline (prior over
+futures), ingest a real observation, and compute the posterior + a Confidence Score. Pure
+math, no LLMs (`simulation/` still imports zero `vectis.agents`).
+
+**Headline result:** the Liguria use case (`python -m vectis.simulation.probability.bayesian`)
+ingests a +3.5 °C temperature spike and moves `hotter_drier` from prior **0.30 → posterior
+0.92**; posterior-weighted fire risk **88 → 94 / 100**; confidence **6% → 71%**. Updating
+1,000 observations takes <1 ms.
+
+**What was built (all green: ruff clean, mypy clean, 66 pytest pass — was 56):**
+- **`probability/bayesian.py` — `GaussianBayesianUpdater`** (impl of the S6 `BayesianUpdater`
+  ABC). Posterior ∝ prior × likelihood, with a **Gaussian observation likelihood**: each
+  scenario predicts `base_state_value + scenario_perturbation` for the observed variable;
+  `P(obs | scenario) = N(obs.value; mean=predicted, sigma)`, `sigma = hypot(model_std,
+  obs.std)`. The **evidence (denominator)** is handled exactly by normalizing over the finite
+  scenario set, so the returned `ScenarioSet` priors sum to 1 → feeds straight back into
+  `MonteCarloEngine.run`. Computed in **log-space** (subtract max log-posterior, then softmax)
+  for numerical stability — a sharp likelihood can't underflow to an all-zero posterior.
+  `update_batch` sums log-likelihoods across observations → a **joint, order-independent**
+  update. The updater is constructed with the `WorldState` (the ABC's `update(prior,
+  observation)` carries no state, but predicted values depend on it). `model_std` uses the
+  state variable's `std` only when it's a natural-space `NORMAL` scale, else `default_model_std`.
+- **`probability/uncertainty.py` — the Confidence Score.** Inversely related to spread.
+  Categorical (`scenario_confidence`/`confidence_from_entropy`): `1 − normalized Shannon
+  entropy` (uniform → 0, certain → 1). Continuous (`confidence_from_variance`/
+  `distribution_confidence`): `1 / (1 + (std/scale)²)`. Plus `posterior_mixture_risk` —
+  `Σ priorₛ · riskₛ` to collapse per-scenario MC risk into the "fire risk is now X%" headline.
+- **`probability/calibration.py` — blueprint.** `CalibrationRecord` + `brier_score` (mean
+  squared error of predicted-vs-actual) implemented and tested; `Calibrator.reliability_curve`
+  and `fit_recalibration` (isotonic/Platt) are documented stubs awaiting a FIRMS-label backlog.
+- **`tests/simulation/test_probability.py`** — 10 tests: strong obs moves prior the right
+  way; non-discriminating obs leaves prior unchanged; posterior stays a valid distribution;
+  consistent obs raise confidence; **matched-strength** contradictory obs lower it;
+  determinism; batch order-independence; 1,000-obs throughput; confidence bounds/monotonicity;
+  Brier accuracy. `probability/__init__.py` now exports the concrete API.
+
+**Files added:** `probability/uncertainty.py`, `probability/calibration.py`,
+`tests/simulation/test_probability.py`. **Changed:** `probability/bayesian.py` (added
+`GaussianBayesianUpdater` + Liguria `__main__` demo), `probability/__init__.py`,
+`docs/v2_simulation_engine.md`, `HANDOFF.md`.
+
+**Gotcha (test design, not a code bug):** "contradictory observations increase uncertainty"
+only holds when the conflicting observations have **matched evidential strength**. A wind obs
+at separation 20 with σ≈3 is ~6σ-decisive and simply *dominates* a 2.6σ temperature obs (the
+posterior collapses onto one branch, confidence stays high). The test deliberately widens the
+wind obs `std` to 7.7 (≈2.6σ, matching the temp obs) so the two genuinely split the posterior.
+Also: observing a scenario's *mean* still discriminates if other scenarios predict a different
+mean — the "uninformative observation" is one no scenario predicts differently (test uses an
+unknown/unperturbed variable → posterior == prior).
+
+---
+
 ## What Worked (decisions that succeeded — keep these)
+
+- **(S8) Discrete Bayes over a finite scenario set — exact evidence, no approximation.** Because
+  futures are a small, exhaustive `ScenarioSet`, the denominator `P(obs) = Σ P(obs|s)P(s)` is an
+  exact finite sum — no grid approximation, no MCMC, no `pymc` needed. Renormalizing over the set
+  gives priors that sum to 1 by construction, so the posterior feeds straight back into the MC
+  engine. Reach for `pymc`/conjugate updates only when updating a *continuous* state variable's
+  distribution, not the scenario weights.
+- **(S8) Log-space softmax normalization.** Working in log-likelihoods and subtracting the max
+  before exponentiating means a 6σ-decisive observation drives a branch to ~0 without underflow
+  or NaNs, and the exact `/sum` afterwards guarantees the schema's sum-to-1 guard passes to
+  machine precision. Avoided `logsumexp` import — the manual max-subtract is the same thing, leaner.
+- **(S8) Confidence = 1 − normalized entropy.** A single, interpretable `[0,1]` score that
+  *automatically* rises with consistent evidence and falls with contradiction, because that's
+  what entropy does to a posterior. No hand-tuned heuristic; the math gives the behavior the
+  brief asked for.
 
 - **(V2) Pure-math layer, enforced by the dependency graph.** `simulation/` imports only `core` +
   numerical libs, never `agents`. The Golden Rule (no LLM math) isn't a guideline — it's
@@ -591,7 +660,7 @@ optionally parallel (process-pool output is byte-identical to the serial path).
   `C408` rejects `dict(...)` literals, `I001` import ordering (stdlib `concurrent.futures` before
   third-party `numpy`). All trivially fixed; mypy is scoped to `vectis/` only (tests untyped is fine).
 
-## Next Steps (Session 8 — pick up here)
+## Next Steps (Session 9 — pick up here)
 
 **Done so far (do not redo):** S1 vertical slice; S2 DB session layer + migrations + readiness;
 S3 LangGraph engine + two-engine interface + extended ML metrics + auditable model selection;
@@ -600,30 +669,34 @@ tests in CI, Docker healthchecks + reproducible `npm ci`, `.editorconfig`, repo-
 security review); **S6 the "Matrix x Palantir Gotham" tactical redesign**; **V2 Foundation**
 (the `simulation/` skeleton — schemas + ABC interfaces + docs); **S7 the Monte Carlo engine**
 (`distributions`/`sampler`/`runner`/`models/wildfire`/`scenarios/generator` — vectorized, seeded,
-reproducible, optional process-pool parallelism; 100k in ~70 ms; 8 tests). Note: the **NASA FIRMS
-/ live-data work was never done** — it remains a top backend priority, and feeds V2 State Estimation.
+reproducible, optional process-pool parallelism; 100k in ~70 ms; 8 tests); **S8 the Bayesian
+update + Confidence Score** (`probability/bayesian` `GaussianBayesianUpdater`, `probability/
+uncertainty`, `probability/calibration` blueprint; discrete exact-evidence Bayes in log-space;
+10 tests). Note: the **NASA FIRMS / live-data work was never done** — it remains a top backend
+priority, and feeds V2 State Estimation. The **`states/base.py` `StateEstimator` and
+`forecasting/Forecast` impls are still ABC-only** — they were S8 stretch items, deferred below.
 
-### Session 8 PRIMARY: Probability & Bayesian Update (V2)
+### Session 9 PRIMARY: Real-Time Intelligence Layer (V2)
 
-The engine produces distributions from priors; now close the **learn-from-data loop** and the
-remaining V2 interfaces — still **deterministic libraries only, no LLMs in the math**:
+The loop now *learns* from observations; Session 9 should feed it **real, live observations** and
+expose the learned forecast — still **deterministic libraries only, no LLMs in the math**:
 
-- **`probability/bayesian.py` impl** → a concrete `BayesianUpdater`: posterior ∝ prior × likelihood.
-  Start simple — Gaussian likelihood of each `Observation` under each scenario's predicted state
-  (`scipy.stats`); re-normalize priors and return a new `ScenarioSet` (the schema enforces sum-to-1).
-  Defer `pymc` until a conjugate/closed-form update is clearly insufficient. Test: an observation
-  consistent with `hotter_drier` shifts mass toward it; posterior still sums to 1; same seed/inputs
-  reproducible. This wires the `estimate → simulate → observe → update` loop shut.
+- **Live observation source → the Bayesian loop.** Wire a real data feed (start with **NASA
+  FIRMS** active-fire detections; then ERA5 weather) into `Observation` objects and stream them
+  through `GaussianBayesianUpdater.update_batch`, so scenario beliefs track reality in near-real-
+  time. Keep `sample`/offline the default; live = opt-in (preserve reproducibility).
 - **`states/base.py` impl** → a `SampleStateEstimator` building a `WorldState` (with per-variable
-  uncertainty) from the existing V1 feature pipeline (`data/pipeline/`), so the engine starts from a
-  real estimated state rather than the hand-set `liguria_wildfire_state()`.
+  uncertainty) from the V1 feature pipeline (`data/pipeline/`), so the engine starts from a real
+  estimated state rather than the hand-set `liguria_wildfire_state()`. (Deferred from S8.)
 - **`forecasting/` impl** → adapt a `SimulationRun` into a public `Forecast` (mixture over scenarios
-  weighted by posterior priors → a single horizon distribution + per-band probabilities), plus an
-  API endpoint exposing it. Then the V1 **Analyst** agent that *reads* the `Forecast` and narrates it
-  (LLM-narrates-not-decides — it must never recompute the numbers).
+  weighted by **posterior** priors → a single horizon distribution + per-band probabilities; reuse
+  `probability/uncertainty.posterior_mixture_risk` + `scenario_confidence`), plus an API endpoint
+  exposing it. Then the V1 **Analyst** agent that *reads* the `Forecast` and narrates it
+  (LLM-narrates-not-decides — never recompute the numbers). (Deferred from S8.)
 - **Calibration:** the `WildfireHazardModel` coefficients are illustrative (`ponytail:` in
-  `models/wildfire.py`) — once FIRMS labels exist, fit them (reuse V1's logistic model) so the
-  hazard is empirical, not hand-tuned.
+  `models/wildfire.py`); the `probability/calibration.py` reliability-curve + recalibration are
+  blueprint stubs. Once FIRMS labels exist, fit the hazard (reuse V1's logistic model) and start
+  logging resolved forecasts into a `Calibrator` so `brier_score` becomes a real, tracked metric.
 
 0. **Run `docker compose up --build` once** on a machine with Docker (carried from S4/S5). Verify
    the new backend healthcheck flips healthy after migrate+seed+train and the frontend then starts
@@ -664,7 +737,7 @@ Then, highest-leverage:
 cd backend && python -m venv .venv && .venv/Scripts/activate   # (Windows)
 pip install -e ".[dev]"            # add ".[langgraph]" to use the LangGraph engine
 python -m vectis.scripts.demo       # see the whole system work in ~3s, offline
-pytest                             # 48 tests, all green
+pytest                             # 66 tests, all green
 
 # Frontend
 cd frontend && npm install && npm run dev    # http://localhost:5173 (proxies /api → :8000)

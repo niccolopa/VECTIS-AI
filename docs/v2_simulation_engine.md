@@ -132,3 +132,49 @@ agent machinery, and be reused by other frontends.
 > sessions (see `HANDOFF.md` → *What Didn't Work*). To honor the source of truth
 > and avoid duplicating a working, tested package, V2 lives under
 > `backend/vectis/simulation/`.
+
+---
+
+## 5. Bayesian update & confidence (Session 8)
+
+The Monte Carlo engine turns a `WorldState` + `ScenarioSet` (priors) into
+distributions. Session 8 closes the **learn-from-data loop**: when a real
+observation arrives, revise *which future we believe in*, then re-run.
+
+**`probability/bayesian.py` — `GaussianBayesianUpdater`.** Each scenario predicts
+a value for the observed variable (the state estimate plus the scenario's
+perturbation). The likelihood of an observation under a scenario is the Gaussian
+density of the observed value at that prediction, and Bayes' theorem gives the
+posterior:
+
+```
+P(scenario | obs) = P(obs | scenario) · P(scenario) / P(obs)
+P(obs | scenario) = N(obs.value ; mean = predicted_value(scenario), sigma)
+sigma             = hypot(model_std, observation.std)
+P(obs)            = Σ_s P(obs | s) · P(s)        ← evidence (the denominator)
+```
+
+The evidence is handled **exactly** by normalizing over the (finite, exhaustive)
+scenario set, so the returned `ScenarioSet` priors sum to 1 by construction —
+ready to feed straight back into the next `MonteCarloEngine.run`. Computation is
+in log-space (stabilized by subtracting the max log-posterior) so a sharp
+observation can drive a likelihood to ~0 without underflowing to a degenerate
+all-zero posterior. `update_batch` sums log-likelihoods across conditionally-
+independent observations → a true **joint** update, independent of arrival order.
+
+**`probability/uncertainty.py` — the Confidence Score.** Confidence is *inversely*
+related to spread. Categorical (over a `ScenarioSet`): `1 − normalized Shannon
+entropy` — a uniform posterior scores 0, all mass on one scenario scores 1, so
+consistent observations (which sharpen the posterior) raise it and contradictory
+ones lower it. Continuous (over a `ProbabilityDistribution`): `1 / (1 + (std/scale)²)`.
+
+**`probability/calibration.py` — blueprint.** `brier_score` (mean squared error of
+predicted-vs-actual) is implemented and tested; the reliability diagram and a
+fitted recalibration map (isotonic / Platt) are stubbed until a real FIRMS-label
+outcome backlog exists.
+
+**Zero-LLM, vectorized.** Pure `numpy`/`scipy`; updating 1,000 observations takes
+well under a millisecond (one vectorized `norm.logpdf` per observation across the
+scenario set). The Liguria use case (`python -m vectis.simulation.probability.bayesian`):
+a +3.5 °C temperature spike moves `hotter_drier` from prior 0.30 to posterior 0.92,
+fire risk 88 → 94 / 100, confidence 6% → 71%.
