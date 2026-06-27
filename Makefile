@@ -32,6 +32,10 @@ seed: ## Generate the deterministic Liguria sample dataset
 demo: ## Run one end-to-end analysis and print the Decision Report (no API key needed)
 	cd $(BACKEND) && $(PY) -m vectis.scripts.demo
 
+.PHONY: demo-v2
+demo-v2: ## Run the V2 end-to-end Liguria wildfire intelligence demo (offline, no API key)
+	cd $(BACKEND) && $(PY) -m vectis.scripts.demo_v2
+
 .PHONY: train
 train: ## Train + evaluate models on the sample and write the model card
 	cd $(BACKEND) && $(PY) -m vectis.scripts.train

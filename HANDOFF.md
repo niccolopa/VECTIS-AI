@@ -4,9 +4,9 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-27** · End of **Session 11** (V2 LLM Simulation Agents —
-`agents/board/` LangGraph Analyst→Scenario→Debate→Critic board + `DecisionIntelligenceReport`
-behind a Math Firewall; 89 backend tests green).
+Last updated: **2026-06-27** · End of **Session 12** (First Real VECTIS Demo —
+`scripts/demo_v2.py` drives the full V2 pipeline end to end as a tactical stdlib console;
+93 backend tests green).
 
 > **Session history:** S1 — full foundation + working vertical slice (agents/ML/API/
 > frontend). S2 — hardened the backend/data **foundation** (DB session layer, Alembic
@@ -603,7 +603,64 @@ plain partial-update return → `call-overload`. Fixed with the **scoped** mypy 
 
 ---
 
+## Current Progress (Session 12 — First Real VECTIS Demo — COMPLETE)
+
+Focus: **stitch every V2 layer into one flawless, runnable end-to-end demo** of the Liguria
+wildfire use case — integration + presentation, no new core math. Proves the full pipeline:
+simulated weather alert → `RealTimeUpdater` → Liguria `RegionTwin` transition → Monte Carlo
+(100k) → Bayesian update → LangGraph board → `DecisionIntelligenceReport`.
+
+**What was built (all green: ruff clean, mypy clean on 98 files, 93 pytest pass — was 89):**
+- **`vectis/scripts/demo_v2.py`** — the demo. `run_demo(*, iterations=100_000, seed=7, color=True,
+  out=None, llm=None) -> DemoResult` (returns baseline/final `RiskState` + the report, so it's
+  testable) and `main()`. Builds a *calm* Liguria `RegionState`, registers a `RegionTwin` with a
+  **100k**-iteration `SimulationConfig`, ingests two `WeatherAlert`s (heatwave +4.5 °C, drought
+  −35 %) through `RealTimeUpdater.process`, then runs `SimulationBoardService.analyze_twin`.
+  Renders 5 phases (INITIALIZE / OBSERVE / CALCULATE / ANALYZE / REPORT) as a tactical terminal —
+  **pure stdlib** (ANSI + box-drawing), no `rich` (not a dep). Result: ~45/100 MODERATE → ~98/100
+  SEVERE, posterior collapsing onto *hotter & drier*, confidence 6% → 100%, in ~1 s offline.
+- **`scripts/run_demo_liguria.py`** — top-level shim the brief's quality-check command runs
+  (`python scripts/run_demo_liguria.py`); prepends the backend root to `sys.path` so it works even
+  before `pip install -e .`. `make demo-v2` target added.
+- **Mock realism:** reused the Session-11 deterministic fallbacks (already intelligence-grade and
+  region/driver/scenario-aware) — on the Liguria twin they read as a real brief, no new mock needed.
+- **`tests/integration/test_end_to_end_demo.py`** — 4 tests: alert raises risk MODERATE→SEVERE +
+  shifts beliefs to hotter_drier; report well-formed + Math-Firewall-consistent (report numbers ==
+  engine numbers); console output has every section + "100,000" + the risk score; determinism
+  (same seed/mock ⇒ identical numbers and analyst prose).
+
+**Two real robustness bugs caught and fixed during the demo build:**
+1. **structlog INFO lines interleaved** into the terminal art. Fixed with `_silence_logs()` (raise
+   the structlog filter to CRITICAL at `run_demo` start, before the first log fires). Tests are
+   unaffected — their captured `out` buffer never received structlog's `PrintLogger` output anyway.
+2. **`UnicodeEncodeError` on a cp1252 Windows console** — the box-drawing glyphs (and em-dash/°C/−
+   in the prose) crash a naive run. `main()` now calls `_force_utf8_stdout()` (reconfigure to UTF-8
+   with `errors="backslashreplace"`, falling back to wrapping the raw binary buffer when structlog's
+   colorama wrapper blocks `reconfigure`) so "clone → run" never dies on encoding.
+
+**Honest note on the numbers:** two CRITICAL corroborating alerts drive the scenario posterior to
+~100% (residual 0%). That's mathematically correct (a +4.5 °C reading is a decisive outlier for a
+calm baseline) and the Red-Team fallback turns it into a sharper point ("Do not mistake 100%
+confidence for coverage — the model is blind to arson and sub-grid wind"). If a softer, partial
+update reads better for a given audience, lower the alert severity/magnitude or warm the baseline.
+
+---
+
 ## What Worked (decisions that succeeded — keep these)
+
+- **(S12) The demo logic lives in a testable package module; the top-level script is a 3-line
+  shim.** `vectis.scripts.demo_v2.run_demo(...)` returns a `DemoResult`, so the *same* flow the
+  console renders is asserted in the integration test — the demo can't rot. `scripts/
+  run_demo_liguria.py` only satisfies the documented command (and self-bootstraps `sys.path`).
+- **(S12) Pure-stdlib terminal UI over adding `rich`.** ANSI + box-drawing characters give a
+  stunning tactical console with zero new dependency, honoring "clone → install → run flawlessly".
+  `color=False` yields clean plain text for test assertions and piping.
+- **(S12) Reused the S11 deterministic fallbacks as the demo's "realistic mock".** Because they're
+  already BLUF/red-team register and parameterized by region/driver/scenarios, the offline output
+  *is* a serious brief — no demo-specific mock provider needed (don't rebuild what already works).
+- **(S12) Encoding + logging made bulletproof, not assumed.** A demo whose whole value is the
+  console must survive a cp1252 terminal and not interleave operational logs — both fixed
+  explicitly rather than hoped away. The "clone and run" promise is only real if it's literally run.
 
 - **(S11) Math Firewall enforced in the type system, not just the prompt.** Numbers are copied
   from the engine output into the report's structured fields *in code*; the LLM only writes prose.
@@ -861,7 +918,7 @@ plain partial-update return → `call-overload`. Fixed with the **scoped** mypy 
   `C408` rejects `dict(...)` literals, `I001` import ordering (stdlib `concurrent.futures` before
   third-party `numpy`). All trivially fixed; mypy is scoped to `vectis/` only (tests untyped is fine).
 
-## Next Steps (Session 12 — pick up here)
+## Next Steps (Session 13 — pick up here)
 
 **Done so far (do not redo):** S1 vertical slice; S2 DB session layer + migrations + readiness;
 S3 LangGraph engine + two-engine interface + extended ML metrics + auditable model selection;
@@ -880,39 +937,50 @@ uncertainty`, `probability/calibration` blueprint; discrete exact-evidence Bayes
 deterministic transitions feed the probability engine; streaming refactored to route events to
 twins; 7 tests); **S11 the LLM Simulation Agents** (`agents/board/` package: LangGraph
 `Analyst → Scenario → Debate → Critic` board + `DecisionIntelligenceReport` + Math Firewall +
-`POST /api/v1/intelligence/reports`; 9 tests). Note: the **NASA FIRMS / live-data work was never
-done** — top backend priority, feeds State Estimation *and* the streaming/twin layers (both still
-ingest synthetic events). The **`states/base.py` `StateEstimator` and `forecasting/Forecast`
-impls are still ABC-only**, and the twin + belief state is **in-memory only (not persisted)**.
+`POST /api/v1/intelligence/reports`; 9 tests); **S12 the first end-to-end demo** (`scripts/
+demo_v2.py` + `scripts/run_demo_liguria.py` + `make demo-v2`: full pipeline, 100k MC, tactical
+stdlib console; 4 integration tests). Note: the **NASA FIRMS / live-data work was never done** —
+top backend priority, feeds State Estimation *and* the streaming/twin layers (both still ingest
+**synthetic** events; the demo's alerts are scripted). The **`states/base.py` `StateEstimator` and
+`forecasting/Forecast` impls are still ABC-only**, the twin + belief state is **in-memory only (not
+persisted)**, and **`docker compose up --build` has still never been run here** (item 0).
 
-### Session 12 PRIMARY: First Real VECTIS Demo
+### Session 13 PRIMARY: Scale & Performance
 
-All the layers exist and are individually green (89 backend tests). Session 12 should stitch them
-into **one coherent, runnable end-to-end demo** a stakeholder can watch — the whole pipeline
-firing on real(istic) input, surfaced in the frontend. This is integration + presentation, not
-new core math. Suggested spine:
+The platform works end to end for *one* region with *one* twin in memory. Session 13 should make
+it **fast and scalable under load** — measure first, then fix the real bottlenecks (don't optimize
+blind). Likely spine:
 
-- **A scripted end-to-end run.** A `scripts/demo_v2.py` (mirroring the V1 `scripts.demo`) that:
-  builds the Liguria `RegionTwin` → ingests a sequence of observations through
-  `RealTimeUpdater.process` (a temperature spike, a wind alert, a fire detection) → prints the
-  evolving `RiskState` → runs the `SimulationBoardService` → prints the `DecisionIntelligenceReport`.
-  Offline, deterministic (`mock` LLM), ~seconds. This is the "watch VECTIS think" artifact.
-- **Frontend wiring.** Connect the console to the live V2 endpoints: `GET /stream/state` (current
-  risk), the `WS /stream/ws` push (already broadcasting `StateChange`), and
-  `POST /intelligence/reports` (render the `DecisionIntelligenceReport` — analyst brief, scenario
-  storylines, the optimist/pessimist debate, red-team blind spots). The report schema is already
-  frontend-ready JSON. Wire real risk into the 3D globe (`GlobeWidget`) per the S6 TODO.
-- **Make the input *real* for the demo** (highest credibility win): the **NASA FIRMS** connector
-  (below) so at least one ingested observation is a genuine active-fire detection, not synthetic.
-- **Polish for the room:** a `make demo-v2` target; a short scripted narrative (what to click,
-  what the numbers mean); ensure `docker compose up --build` actually runs end-to-end (item 0).
+- **Benchmark harness.** A `scripts/bench_v2.py` (or `pytest-benchmark`) that measures: single MC
+  run latency vs `n_iterations` (100k baseline ~70 ms — confirm), `RealTimeUpdater.process`
+  throughput (events/sec), and `SimulationBoardService` latency (mock). Establish numbers before
+  touching code — the S7 "vectorization crushes it" lesson means the MC is probably *not* the
+  bottleneck; the board/LLM and per-event MC re-runs likely are.
+- **Many twins, concurrently.** Drive N `RegionTwin`s (10 → 1k → 10k) through the `StateManager` +
+  `RealTimeUpdater` under concurrent ingest; confirm the **per-twin locks** (S10) actually give
+  parallel throughput and the router's debounce lock isn't a global chokepoint. Measure memory per
+  twin (each holds a `ScenarioSet` + cached scenario risk — should be tiny; the MC arrays are
+  transient). This is the S10 "10k twins?" quality-check claim — now *prove* it with numbers.
+- **Turn on the parallelism that's already built.** S7 shipped the `ProcessPoolExecutor` path
+  (`parallel=True`, `n_workers>1`) but left it off (cheap math). If per-sample cost grows (richer
+  hazard physics) or many twins contend, measure whether it helps; otherwise keep it off and say so.
+- **Cache / avoid redundant MC.** The twin re-runs 100k MC on *every* state-changing observation.
+  Under a burst, debounce + the belief-shift threshold already cut some; consider coalescing rapid
+  events per twin and a cheaper "re-weight only" path when the *state* didn't materially move.
+- **Async board + provider.** The LangGraph board is synchronous; for many concurrent reports a
+  real LLM provider would dominate latency. Consider an async provider path and bounded concurrency.
+- **Set SLOs and a perf gate.** Pick targets (e.g. p95 ingest→RiskState < X ms at N twins) and add
+  a lightweight perf check so regressions are caught.
 
-Carry-over backlog (still valuable, feeds the demo; in priority order):
+Carry-over backlog (still valuable, in priority order):
 
 - **`forecasting/` impl → public `Forecast`** (mixture over scenarios weighted by posterior priors
   → horizon distribution + per-band probabilities; reuse `posterior_mixture_risk` +
   `scenario_confidence`) + an endpoint. The board's `DecisionIntelligenceReport` and the frontend
   are its natural consumers.
+- **Frontend wiring (the demo's other half).** Connect the console to `GET /stream/state`, the
+  `WS /stream/ws` push, and `POST /intelligence/reports` (render the `DecisionIntelligenceReport`);
+  wire real risk into the 3D globe (`GlobeWidget`, S6 TODO). The report schema is already JSON-ready.
 - **`states/base.py` impl → `SampleStateEstimator`.** Build a `WorldState` from the V1 feature
   pipeline (`data/pipeline/`) and feed it into `RegionTwin` so the twin starts from estimated
   reality, not the default `RegionState`. (Carried from S8/S9/S10.)
@@ -972,7 +1040,8 @@ Then, highest-leverage:
 cd backend && python -m venv .venv && .venv/Scripts/activate   # (Windows)
 pip install -e ".[dev]"            # add ".[langgraph]" to use the LangGraph engine
 python -m vectis.scripts.demo       # see the whole system work in ~3s, offline
-pytest                             # 89 tests, all green
+pytest                             # 93 tests, all green
+python -m vectis.scripts.demo_v2    # watch the full V2 pipeline run (offline, ~1s)
 
 # Frontend
 cd frontend && npm install && npm run dev    # http://localhost:5173 (proxies /api → :8000)

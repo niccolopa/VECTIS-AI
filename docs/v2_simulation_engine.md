@@ -313,3 +313,32 @@ copied from the engine output *in code*, a hallucinated or hostile LLM narration
 cannot change a single number — proven by a test that runs the board with a "lying"
 LLM and asserts the structured figures are unchanged. The LLM owns prose; the engine
 owns arithmetic.
+
+---
+
+## 9. End-to-end demo (Session 12)
+
+Every V2 layer now runs as one offline, deterministic script:
+`python -m vectis.scripts.demo_v2` (or `python scripts/run_demo_liguria.py`, or
+`make demo-v2`). It drives the full pipeline and renders it as a tactical
+intelligence terminal (pure stdlib — no `rich`/dependency):
+
+```
+Simulated weather alert (heatwave + drought)
+   → RealTimeUpdater  → Liguria RegionTwin deterministic transition
+   → Monte Carlo (100,000 scenarios)  → Bayesian posterior update
+   → LangGraph Analysis Board  → Decision Intelligence Report
+```
+
+Five phases print to the console — INITIALIZE (baseline risk + scenario bars),
+OBSERVE (intercepted SIGINT alerts), CALCULATE (per-event twin transition → 100k
+Monte Carlo → Bayesian belief shift → recomputed risk), ANALYZE (convene the
+board), REPORT (the boxed `DecisionIntelligenceReport`: BLUF, key metrics,
+executive summary, scenario projections, blue/gold debate, red-team critique).
+
+For the Liguria use case it shows a calm baseline (~45/100 MODERATE) jump to
+~98/100 SEVERE as the heatwave+drought drive the posterior onto the *hotter &
+drier* branch — the math and the analyst narrative side by side, Math Firewall
+intact (numbers = engine, prose = analysts). Runtime ~1 s, offline, key-free.
+`run_demo(...)` returns a `DemoResult` (baseline/final `RiskState` + report) so the
+same flow is asserted end-to-end in `tests/integration/test_end_to_end_demo.py`.
