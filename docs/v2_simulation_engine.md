@@ -269,3 +269,47 @@ transition, and the scenarios and the same engines model a different entity — 
 debounce → `StateManager.get(region)` → `twin.update_from_observation` → wrap the
 `TwinUpdate` in a `StateChange` for broadcast. The Liguria twin is registered at
 startup; a `WeatherAlert` for "liguria" flows straight into it.
+
+---
+
+## 8. Simulation Analysis Board — LLM agents (Session 11)
+
+Everything in §1–§7 is pure numbers. Session 11 reconnects the LLM layer — but
+under the V1 discipline, now enforced as a **Math Firewall**: agents *read* the
+engine's output and narrate it; they never recompute or contradict it.
+
+```
+   RiskState (from a Digital Twin)
+        │   build_input  (numbers copied verbatim — the firewall's source of truth)
+        ▼
+   ┌──────────  vectis/agents/board/  (LangGraph StateGraph) ──────────┐
+   │  Analyst → Scenario Narrator → Debate(Optimist · Pessimist) → Critic │
+   └────────────────────────────────────┬──────────────────────────────┘
+        ▼
+   DecisionIntelligenceReport  (structured Pydantic → JSON for the frontend)
+```
+
+- **`board/prompts.py`** — the system prompts. Every agent carries the
+  `MATH_FIREWALL` preamble ("you are an analyst, not a calculator; the numbers are
+  authoritative ground truth; never recompute or invent figures") and a `TONE`
+  preamble enforcing a national-security / institutional-risk register.
+- **`board/nodes.py`** — the five analysts (Analyst, Scenario Narrator, Optimist,
+  Pessimist, Red-Team Critic). Each builds the numbers into an LLM `context`, writes
+  a deterministic intelligence-grade `fallback`, calls `LLMProvider.narrate`, and
+  returns a typed object whose **numeric fields are copied from the input**.
+- **`board/team.py`** — the LangGraph `StateGraph` (`Analyst → Scenario → Optimist
+  → Pessimist → Critic`). Reused via the existing `LLMProvider` abstraction (default
+  `mock` → deterministic, offline, key-free), not a hard OpenAI dependency.
+- **`board/service.py`** — `SimulationBoardService.analyze_twin(twin)` / `analyze(
+  BoardInput)`. Prefers the LangGraph graph; falls back to running the same nodes
+  sequentially if LangGraph is absent (identical report — graph is an execution
+  choice). Stream-independent: a report can be generated on demand.
+- **API:** `POST /api/v1/intelligence/reports` `{region}` → reads the region twin's
+  current `RiskState`, runs the board, returns the `DecisionIntelligenceReport`.
+
+**The Math Firewall is structural, not just prompt-deep.** Because every figure in
+the report (risk score, confidence, scenario probabilities, residual uncertainty) is
+copied from the engine output *in code*, a hallucinated or hostile LLM narration
+cannot change a single number — proven by a test that runs the board with a "lying"
+LLM and asserts the structured figures are unchanged. The LLM owns prose; the engine
+owns arithmetic.

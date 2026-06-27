@@ -4,9 +4,9 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-27** · End of **Session 10** (V2 Digital Twin Foundation —
-`digital_twin/` package: `DigitalTwin` ABC + `RegionTwin` + deterministic transitions, wired into
-the streaming layer; 80 backend tests green).
+Last updated: **2026-06-27** · End of **Session 11** (V2 LLM Simulation Agents —
+`agents/board/` LangGraph Analyst→Scenario→Debate→Critic board + `DecisionIntelligenceReport`
+behind a Math Firewall; 89 backend tests green).
 
 > **Session history:** S1 — full foundation + working vertical slice (agents/ML/API/
 > frontend). S2 — hardened the backend/data **foundation** (DB session layer, Alembic
@@ -548,7 +548,79 @@ same three methods with its own `TwinState`, transition, and `_to_world_state` m
 
 ---
 
+## Current Progress (Session 11 — LLM Simulation Agents — COMPLETE)
+
+Focus: **reintroduce LLMs as a team of intelligence analysts** that *read* the Digital Twin's
+output and compile a structured `DecisionIntelligenceReport` — under a hard **Math Firewall**
+(LLMs narrate, never calculate). Built the "Simulation Analysis Board" as a LangGraph state
+machine, wired to the Session-10 twins, exposed via a manual API trigger.
+
+**What was built (all green: ruff clean, mypy clean on 97 files, 89 pytest pass — was 80):** a
+new **`backend/vectis/agents/board/`** sub-package (kept *separate* from the V1 flat `agents/`
+modules — that's the reactive ML/SHAP pipeline; this is the V2 probabilistic board).
+- **`board/prompts.py`** — rigorous system prompts. Shared `MATH_FIREWALL` preamble (numbers are
+  authoritative ground truth; never recompute/invent) + `TONE` preamble (national-security /
+  institutional-risk register: BLUF-first, terse, no chatbot voice) on every agent.
+- **`board/nodes.py`** — the five analysts (Analyst, Scenario Narrator, debate Optimist +
+  Pessimist, Red-Team Critic). Each builds numbers → LLM `context`, writes a deterministic
+  intel-grade `fallback`, calls `LLMProvider.narrate`, and returns a typed schema **with numeric
+  fields copied from the input**. Framework-agnostic (no LangGraph) so the graph and the
+  sequential fallback share one source of logic.
+- **`board/team.py`** — the LangGraph `StateGraph`: `Analyst → Scenario → Optimist → Pessimist →
+  Critic`. The two debate sub-agents are distinct nodes accumulating into one `DebateRound`.
+- **`board/schemas.py`** — `BoardInput` (firewall source-of-truth) + `DecisionIntelligenceReport`
+  (`AnalystBrief` / `ScenarioNarrative` / `DebateRound` / `RedTeamCritique` + `bottom_line` BLUF),
+  fully typed/JSON-serializable for the frontend.
+- **`board/service.py`** — `SimulationBoardService.analyze_twin(twin)` / `analyze(BoardInput)`.
+  Builds `BoardInput` from a `RegionTwin` (primary driver = dominant posterior scenario). Prefers
+  the LangGraph graph; **falls back to running the same nodes sequentially** if LangGraph is
+  absent → identical report (graph is an execution choice, like S3/S7).
+- **`api/routers/intelligence.py`** — `POST /api/v1/intelligence/reports {region}` → reads the
+  region twin's `RiskState`, runs the board, returns the report (404 unknown region). Wired in
+  `api/main.py`. Stream-independent (manual trigger).
+- **`tests/agents/test_simulation_agents.py`** — 9 tests, **all LLM calls mocked** (no API
+  traffic): report matches schema + JSON round-trips; all 7 narrations prompted with the firewall;
+  LangGraph state flows Analyst→Scenario→Debate→Critic (`importorskip`); graph == sequential;
+  **Math Firewall** (a "lying" LLM returning "risk 12/100" cannot change the structured figures);
+  analyze from a real `RegionTwin`; the API endpoint + 404.
+
+**Reconciliation (consistent with every prior session):** the brief named `langchain_openai` and
+real LLM calls. VECTIS's iron rule is offline/key-free/deterministic tests (the `mock` provider).
+Reused the existing `LLMProvider` abstraction (the brief's "or equivalent") for model calls and
+LangGraph for the graph — so the Math Firewall, structured output, and offline CI all hold. A
+real `OpenAIProvider` can be added behind `LLMProvider` later exactly like `AnthropicProvider`.
+
+**Math Firewall — how it's enforced:** (1) **structurally** — every numeric field in the report is
+copied from `BoardInput` in code; the LLM only fills prose, so a hallucinated figure can't
+overwrite an authoritative one (proven by the lying-LLM test); (2) **in the prompts** — the
+`MATH_FIREWALL` preamble on every agent forbids recomputation/invention; (3) **by default** — the
+`mock` provider returns the deterministic, numbers-derived fallback, so offline output is itself a
+serious brief.
+
+**mypy gotcha (same as S3):** LangGraph's `StateGraph.add_node` strict overloads reject the
+plain partial-update return → `call-overload`. Fixed with the **scoped** mypy override extended to
+`vectis.agents.board.team` (joined the existing `langgraph_engine` entry); the rest stays strict.
+
+---
+
 ## What Worked (decisions that succeeded — keep these)
+
+- **(S11) Math Firewall enforced in the type system, not just the prompt.** Numbers are copied
+  from the engine output into the report's structured fields *in code*; the LLM only writes prose.
+  A hostile/hallucinating model literally cannot change a figure — the strongest possible
+  guarantee, and far better than trusting the prompt alone. A lying-LLM test locks it in.
+- **(S11) Reused `LLMProvider` (mock default) + LangGraph, not a hard OpenAI dep.** Keeps CI
+  offline/key-free/deterministic (the project's iron rule) while honoring "graph-based agents."
+  Real providers slot in behind the same interface. Same "reconcile, don't rebuild" lesson as
+  S2/S3/S4 — and the deterministic `mock` fallback is what makes the offline output a real brief.
+- **(S11) Shared node logic; LangGraph and sequential fallback produce identical reports.** The
+  five analysts live in `nodes.py` (no framework); `team.py` wraps them as graph nodes and the
+  service runs them in order when LangGraph is absent. The API never breaks on a lean install, and
+  the graph stays an *execution* choice — proven by a graph==sequential test (echo of S7).
+- **(S11) Deterministic fallbacks written to intelligence-brief standard.** Because `mock` returns
+  the fallback, the offline/CI output *is* the brief a four-star general reads. Writing the
+  fallbacks in BLUF/terse/red-team register (not generic prose) means the quality bar is met even
+  with zero LLM spend.
 
 - **(S10) `DigitalTwin` ABC carries no calculator; the twin maps domain → engine.** The Monte
   Carlo/Bayesian engines stay generic; each twin's *only* engine coupling is one
@@ -789,7 +861,7 @@ same three methods with its own `TwinState`, transition, and `_to_world_state` m
   `C408` rejects `dict(...)` literals, `I001` import ordering (stdlib `concurrent.futures` before
   third-party `numpy`). All trivially fixed; mypy is scoped to `vectis/` only (tests untyped is fine).
 
-## Next Steps (Session 11 — pick up here)
+## Next Steps (Session 12 — pick up here)
 
 **Done so far (do not redo):** S1 vertical slice; S2 DB session layer + migrations + readiness;
 S3 LangGraph engine + two-engine interface + extended ML metrics + auditable model selection;
@@ -806,37 +878,41 @@ uncertainty`, `probability/calibration` blueprint; discrete exact-evidence Bayes
 → conditional MC re-run → WebSocket broadcast; 7 tests); **S10 the Digital Twin Foundation**
 (`digital_twin/` package: `DigitalTwin` ABC + `RegionTwin` + `ClimateTransition` + `StateManager`;
 deterministic transitions feed the probability engine; streaming refactored to route events to
-twins; 7 tests). Note: the **NASA FIRMS / live-data work was never done** — top backend priority,
-feeds State Estimation *and* the streaming/twin layers (both still ingest synthetic events). The
-**`states/base.py` `StateEstimator` and `forecasting/Forecast` impls are still ABC-only**, and the
-twin + belief state is **in-memory only (not persisted)** — all deferred below.
+twins; 7 tests); **S11 the LLM Simulation Agents** (`agents/board/` package: LangGraph
+`Analyst → Scenario → Debate → Critic` board + `DecisionIntelligenceReport` + Math Firewall +
+`POST /api/v1/intelligence/reports`; 9 tests). Note: the **NASA FIRMS / live-data work was never
+done** — top backend priority, feeds State Estimation *and* the streaming/twin layers (both still
+ingest synthetic events). The **`states/base.py` `StateEstimator` and `forecasting/Forecast`
+impls are still ABC-only**, and the twin + belief state is **in-memory only (not persisted)**.
 
-### Session 11 PRIMARY: LLM Simulation Agents
+### Session 12 PRIMARY: First Real VECTIS Demo
 
-Everything the twins/engines produce is pure numbers. Session 11 brings the **V1 LLM "Analyst"
-discipline to the V2 layer**: agents that *read* the twin's `RiskState` / a `SimulationRun` /
-`Forecast` and narrate it — **never recompute it** (the Golden Rule: LLMs never do the math).
-This re-connects the `agents/` layer (decoupled since V2 began) to the simulation output.
+All the layers exist and are individually green (89 backend tests). Session 12 should stitch them
+into **one coherent, runnable end-to-end demo** a stakeholder can watch — the whole pipeline
+firing on real(istic) input, surfaced in the frontend. This is integration + presentation, not
+new core math. Suggested spine:
 
-- **A `SimulationAnalyst` agent.** Reuse the V1 `Agent` + `RunContext` + LLM factory
-  (`agents/llm/`, default `mock` → deterministic, offline). Input: a twin's `RiskState` +
-  scenario posterior (+ later a `Forecast`). Output: a structured, evidence-backed narrative
-  ("risk rose to 74/100 because the posterior shifted to *hotter & drier* after the +4 °C alert").
-  It must cite the numbers it was given and add none of its own — mirror the V1
-  LLM-narrates-not-decides + deterministic-`mock` pattern so CI stays key-free and reproducible.
-- **Keep the boundary structural.** The agent imports *from* `digital_twin`/`simulation` (reads
-  their schemas); those layers must keep importing **zero** `agents` (verify with the existing
-  import-time assert). The LLM sits strictly *outside* the math loop.
-- **Expose it.** An endpoint (e.g. `POST /api/v1/stream/state/{region}/explain` or a field on the
-  `StateChange` broadcast) that returns the narrative alongside the numbers, so the frontend can
-  show *why* the risk moved. Optionally a `Critic`-style check that the narrative's claimed numbers
-  match the `RiskState` (catch hallucinated figures).
+- **A scripted end-to-end run.** A `scripts/demo_v2.py` (mirroring the V1 `scripts.demo`) that:
+  builds the Liguria `RegionTwin` → ingests a sequence of observations through
+  `RealTimeUpdater.process` (a temperature spike, a wind alert, a fire detection) → prints the
+  evolving `RiskState` → runs the `SimulationBoardService` → prints the `DecisionIntelligenceReport`.
+  Offline, deterministic (`mock` LLM), ~seconds. This is the "watch VECTIS think" artifact.
+- **Frontend wiring.** Connect the console to the live V2 endpoints: `GET /stream/state` (current
+  risk), the `WS /stream/ws` push (already broadcasting `StateChange`), and
+  `POST /intelligence/reports` (render the `DecisionIntelligenceReport` — analyst brief, scenario
+  storylines, the optimist/pessimist debate, red-team blind spots). The report schema is already
+  frontend-ready JSON. Wire real risk into the 3D globe (`GlobeWidget`) per the S6 TODO.
+- **Make the input *real* for the demo** (highest credibility win): the **NASA FIRMS** connector
+  (below) so at least one ingested observation is a genuine active-fire detection, not synthetic.
+- **Polish for the room:** a `make demo-v2` target; a short scripted narrative (what to click,
+  what the numbers mean); ensure `docker compose up --build` actually runs end-to-end (item 0).
 
-Carry-over backlog (still valuable, in priority order):
+Carry-over backlog (still valuable, feeds the demo; in priority order):
 
 - **`forecasting/` impl → public `Forecast`** (mixture over scenarios weighted by posterior priors
   → horizon distribution + per-band probabilities; reuse `posterior_mixture_risk` +
-  `scenario_confidence`). The `SimulationAnalyst` above is its most natural first consumer.
+  `scenario_confidence`) + an endpoint. The board's `DecisionIntelligenceReport` and the frontend
+  are its natural consumers.
 - **`states/base.py` impl → `SampleStateEstimator`.** Build a `WorldState` from the V1 feature
   pipeline (`data/pipeline/`) and feed it into `RegionTwin` so the twin starts from estimated
   reality, not the default `RegionState`. (Carried from S8/S9/S10.)
@@ -845,6 +921,9 @@ Carry-over backlog (still valuable, in priority order):
 - **Persist the twin + belief history.** `StateManager` + twin state are in-memory (lost on
   restart). Add an ORM-backed store for `RegionState` + posterior `ScenarioSet` snapshots over
   time, so twins survive restarts and the belief trajectory is queryable/auditable.
+- **A real `OpenAIProvider`/`AnthropicProvider` for the board** (behind the existing `LLMProvider`
+  interface, like the V1 anthropic provider) so a *keyed* demo run shows real narration; `mock`
+  stays the default so CI/offline is unchanged.
 - **Calibration:** `WildfireHazardModel` coefficients are illustrative (`ponytail:` in
   `models/wildfire.py`); `probability/calibration.py` reliability-curve + recalibration are
   blueprint stubs. Once FIRMS labels exist, fit the hazard and log resolved forecasts into a
@@ -893,7 +972,7 @@ Then, highest-leverage:
 cd backend && python -m venv .venv && .venv/Scripts/activate   # (Windows)
 pip install -e ".[dev]"            # add ".[langgraph]" to use the LangGraph engine
 python -m vectis.scripts.demo       # see the whole system work in ~3s, offline
-pytest                             # 80 tests, all green
+pytest                             # 89 tests, all green
 
 # Frontend
 cd frontend && npm install && npm run dev    # http://localhost:5173 (proxies /api → :8000)

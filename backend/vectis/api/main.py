@@ -63,13 +63,14 @@ def create_app() -> FastAPI:
         )
 
     # Routers (imported here to avoid circulars at module import time).
-    from vectis.api.routers import analyses, health, models, regions, stream
+    from vectis.api.routers import analyses, health, intelligence, models, regions, stream
 
     app.include_router(health.router)
     app.include_router(analyses.router)
     app.include_router(regions.router)
     app.include_router(models.router)
     app.include_router(stream.router)
+    app.include_router(intelligence.router)
     return app
 
 

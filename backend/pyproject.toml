@@ -76,9 +76,9 @@ plugins = ["pydantic.mypy"]
 
 # LangGraph's StateGraph.add_node uses very strict generic overloads that reject
 # a plain partial-update return type. This is third-party API friction, scoped to
-# the optional engine module only — the rest of the codebase stays strict.
+# the LangGraph-backed modules only — the rest of the codebase stays strict.
 [[tool.mypy.overrides]]
-module = "vectis.agents.langgraph_engine"
+module = ["vectis.agents.langgraph_engine", "vectis.agents.board.team"]
 disable_error_code = ["call-overload"]
 
 [tool.pytest.ini_options]
