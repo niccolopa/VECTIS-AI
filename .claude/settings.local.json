@@ -24,7 +24,20 @@
       "Bash(.venv/Scripts/python.exe -m pytest -q)",
       "Bash(git commit -m ' *)",
       "Bash(.venv/Scripts/python.exe -c \"import scipy; from scipy import stats; from scipy.special import expit; print\\('scipy', scipy.__version__\\)\")",
-      "Bash(.venv/Scripts/python.exe -c ' *)"
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -m ruff check vectis/simulation tests/simulation)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/simulation -q)",
+      "Bash(.venv/Scripts/python.exe -m pytest)",
+      "Bash(.venv/Scripts/python.exe -m ruff format --check vectis/simulation tests/simulation)",
+      "Bash(python -m pytest tests/simulation/test_probability.py -q)",
+      "Bash(python -m vectis.simulation.probability.bayesian)",
+      "Bash(python -m vectis.simulation.probability.uncertainty)",
+      "Bash(python -m vectis.simulation.probability.calibration)",
+      "Bash(python -m pytest -q)",
+      "Bash(ruff check *)",
+      "Bash(mypy vectis/simulation/probability/)",
+      "Bash(mypy vectis/)",
+      "Bash(python -m pytest)"
     ]
   }
 }
