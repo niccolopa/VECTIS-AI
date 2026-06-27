@@ -178,3 +178,43 @@ well under a millisecond (one vectorized `norm.logpdf` per observation across th
 scenario set). The Liguria use case (`python -m vectis.simulation.probability.bayesian`):
 a +3.5 °C temperature spike moves `hotter_drier` from prior 0.30 to posterior 0.92,
 fire risk 88 → 94 / 100, confidence 6% → 71%.
+
+---
+
+## 6. Real-time intelligence layer (Session 9)
+
+The math engines are batch services. Session 9 wraps them in a **continuous
+updating loop** so live data keeps the forecast current — without heavy infra
+(no Kafka/Redis yet), and structured so that infra can drop in later.
+
+**Flow.** `POST /api/v1/stream/ingest` accepts an event (`SensorReading` /
+`WeatherAlert`, a `kind`-discriminated union) and returns **202 Accepted
+immediately**, scheduling the work on a FastAPI `BackgroundTask`. The task:
+
+```
+event ─▶ Observation ─▶ debounce ─▶ Bayesian update ─▶ belief_shift (TV distance)
+        │                                                     │
+        │                              shift ≥ threshold ─▶ re-run Monte Carlo
+        ▼                                                     ▼
+   RealTimeUpdater.process()  ───────────────────────▶  StateChange ─▶ WebSocket broadcast
+```
+
+- **`streaming/events.py`** — inbound events (each `to_observation()` maps itself
+  to the Session-8 `Observation`) and outbound `RiskState` / `StateChange`.
+- **`streaming/updater.py`** — `RealTimeUpdater.process(event)` is **pure,
+  synchronous, transport-agnostic**: debounce → Bayesian update → decide (re-run
+  Monte Carlo iff the prior→posterior **total-variation distance** ≥ threshold) →
+  build `RiskState`. An internal lock guards the in-memory belief state.
+- **`streaming/broadcaster.py`** — `ConnectionManager`, an in-process WebSocket
+  fan-out (`WS /api/v1/stream/ws`); the only component that knows about sockets.
+
+**Async handling.** The CPU-bound `process()` runs via `asyncio.to_thread` inside
+the background task, so the event loop (and ingestion) is never blocked; the
+broadcast then runs back on the loop. **Debouncing**: content-duplicate events
+(same source+variable+value) inside a 1 s window are dropped — which also keeps
+the Bayesian math honest (one measurement counted once).
+
+**Decoupling.** `RealTimeUpdater` imports zero web/transport code; the router and
+broadcaster are the only FastAPI-aware pieces. Replacing BackgroundTasks with
+Celery/Kafka means rewriting the dispatch glue (the router task) and the publish
+transport (the broadcaster) — `process()` and all of `simulation/` are untouched.

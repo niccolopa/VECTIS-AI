@@ -4,8 +4,9 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-27** · End of **Session 8** (V2 Probability & Bayesian Update —
-`GaussianBayesianUpdater` + Confidence Score; 66 backend tests green).
+Last updated: **2026-06-27** · End of **Session 9** (V2 Real-Time Intelligence Layer —
+`streaming/` ingest → Bayesian update → conditional MC re-run → WebSocket broadcast; 73 backend
+tests green).
 
 > **Session history:** S1 — full foundation + working vertical slice (agents/ML/API/
 > frontend). S2 — hardened the backend/data **foundation** (DB session layer, Alembic
@@ -457,7 +458,65 @@ unknown/unperturbed variable → posterior == prior).
 
 ---
 
+## Current Progress (Session 9 — Real-Time Intelligence Layer — COMPLETE)
+
+Focus: **the orchestration layer that connects live data to the math engines.** When an event
+arrives via the API, VECTIS registers it, runs the Bayesian update, re-runs Monte Carlo if the
+belief shift is significant, and broadcasts the new risk state over WebSockets. Infrastructure-
+light by design (no Kafka/Redis) but modular so they can drop in later. Zero LLM in the loop.
+
+**What was built (all green: ruff clean, mypy clean, 73 pytest pass — was 66):** a new
+**`backend/vectis/streaming/`** package + a stream API router, wired into the app.
+- **`streaming/events.py`** — wire-format Pydantic models. Inbound: `SensorReading` /
+  `WeatherAlert` as a `kind`-discriminated union (`IngestEvent`); each `to_observation()` maps
+  itself to the Session-8 `Observation` (alert severity → measurement std). Outbound: `RiskState`
+  (current posterior-weighted risk + band + confidence + scenario priors) and `StateChange` (the
+  broadcast payload). `dedupe_key()` (source+variable+value) drives debouncing.
+- **`streaming/updater.py`** — `RealTimeUpdater`, the **swappable seam**. `process(event)` is
+  **pure, synchronous, transport-agnostic**: debounce → `GaussianBayesianUpdater.update` →
+  compute `belief_shift` (prior→posterior **total-variation distance**) → re-run
+  `VectorizedMonteCarloEngine` iff `shift ≥ rerun_threshold` (else cheap re-weight of cached
+  per-scenario risk) → build `RiskState` via `posterior_mixture_risk` + `scenario_confidence`.
+  An internal `threading.Lock` guards the in-memory belief state. `build_default_updater()`
+  seeds the Liguria twin + a baseline MC run at startup.
+- **`streaming/broadcaster.py`** — `ConnectionManager`, an in-process WebSocket fan-out
+  (connect/disconnect/broadcast; drops dead peers). Typed against a `WebSocketLike` Protocol so
+  it's unit-testable with a fake and the *core* logic has no hard Starlette dep. The only
+  component that knows about sockets.
+- **`api/routers/stream.py`** — `POST /api/v1/stream/ingest` (→ **202 Accepted**, schedules a
+  `BackgroundTask`), `GET /api/v1/stream/state` (current `RiskState`), `WS /api/v1/stream/ws`
+  (subscribe). The background task runs `process()` via `asyncio.to_thread` (CPU-bound math off
+  the loop → ingestion never blocked), then broadcasts on the loop. Wired in `api/main.py`
+  (lifespan builds `app.state.updater` + `app.state.broadcaster`) and `api/deps.py`.
+- **`tests/streaming/test_realtime.py`** — 7 tests: 202-immediate; background task moves beliefs
+  (hotter_drier prior ↑, confidence ↑); duplicate events debounced; `ConnectionManager`
+  connect/broadcast + dead-peer pruning; end-to-end **ingest → WebSocket push**; pure-orchestrator
+  callable without HTTP.
+
+**Reconciliation:** the brief said `api/endpoints/stream.py`; the existing convention is
+`api/routers/` — placed it there (reconcile, don't fork structure — same lesson as S2/S4/S6).
+
+---
+
 ## What Worked (decisions that succeeded — keep these)
+
+- **(S9) `RealTimeUpdater.process()` as a pure synchronous seam.** All ordering/decision logic
+  (debounce → Bayes → significance → maybe-MC → RiskState) lives in one transport-agnostic
+  method that neither awaits nor imports web code. The router (BackgroundTasks) and broadcaster
+  (WebSockets) are the only FastAPI-aware pieces. Swapping in Celery/Kafka/Redis = rewrite the
+  dispatch glue + publish transport; `process()` and all of `simulation/` are untouched. This is
+  exactly the decoupling the quality-check demanded.
+- **(S9) `asyncio.to_thread` for the CPU-bound update in a background task.** Ingestion returns
+  202 instantly; the numpy/scipy work runs off the event loop (GIL released during the kernel),
+  then the broadcast runs back on the loop. Non-blocking without a task queue.
+- **(S9) Total-variation distance as the "significant change" trigger.** One cheap, bounded
+  ([0,1]) metric on the prior→posterior belief shift decides whether a full MC re-run is worth
+  it; small shifts just re-weight cached per-scenario risk. Tunable via `rerun_threshold`.
+- **(S9) Debounce on content key, dropping the whole update (not just the MC re-run).** Counting
+  100 identical readings as 100 observations would *over-concentrate* the posterior — wrong math,
+  not just wasted compute. Dropping content-duplicates inside the window fixes both at once.
+- **(S9) `WebSocketLike` Protocol over a hard Starlette import in the manager.** The broadcaster's
+  fan-out logic is testable with a plain fake object and carries no transport coupling in its core.
 
 - **(S8) Discrete Bayes over a finite scenario set — exact evidence, no approximation.** Because
   futures are a small, exhaustive `ScenarioSet`, the denominator `P(obs) = Σ P(obs|s)P(s)` is an
@@ -660,7 +719,7 @@ unknown/unperturbed variable → posterior == prior).
   `C408` rejects `dict(...)` literals, `I001` import ordering (stdlib `concurrent.futures` before
   third-party `numpy`). All trivially fixed; mypy is scoped to `vectis/` only (tests untyped is fine).
 
-## Next Steps (Session 9 — pick up here)
+## Next Steps (Session 10 — pick up here)
 
 **Done so far (do not redo):** S1 vertical slice; S2 DB session layer + migrations + readiness;
 S3 LangGraph engine + two-engine interface + extended ML metrics + auditable model selection;
@@ -672,31 +731,42 @@ security review); **S6 the "Matrix x Palantir Gotham" tactical redesign**; **V2 
 reproducible, optional process-pool parallelism; 100k in ~70 ms; 8 tests); **S8 the Bayesian
 update + Confidence Score** (`probability/bayesian` `GaussianBayesianUpdater`, `probability/
 uncertainty`, `probability/calibration` blueprint; discrete exact-evidence Bayes in log-space;
-10 tests). Note: the **NASA FIRMS / live-data work was never done** — it remains a top backend
-priority, and feeds V2 State Estimation. The **`states/base.py` `StateEstimator` and
-`forecasting/Forecast` impls are still ABC-only** — they were S8 stretch items, deferred below.
+10 tests); **S9 the Real-Time Intelligence Layer** (`streaming/` package: `events`/`updater`/
+`broadcaster` + `api/routers/stream.py`; 202-ingest → BackgroundTask → debounce → Bayesian update
+→ conditional MC re-run → WebSocket broadcast; 7 tests). Note: the **NASA FIRMS / live-data work
+was never done** — it remains a top backend priority and feeds both V2 State Estimation *and* the
+S9 streaming layer (which currently ingests synthetic events). The **`states/base.py`
+`StateEstimator` and `forecasting/Forecast` impls are still ABC-only** — deferred again below.
 
-### Session 9 PRIMARY: Real-Time Intelligence Layer (V2)
+### Session 10 PRIMARY: Digital Twin Foundation
 
-The loop now *learns* from observations; Session 9 should feed it **real, live observations** and
-expose the learned forecast — still **deterministic libraries only, no LLMs in the math**:
+The streaming layer can now react to events, but it reacts on a **hand-set** Liguria twin
+(`liguria_wildfire_state()`) and **synthetic** events. Session 10 should make the digital twin
+*real and persistent* — still **deterministic libraries only, no LLMs in the math**:
 
-- **Live observation source → the Bayesian loop.** Wire a real data feed (start with **NASA
-  FIRMS** active-fire detections; then ERA5 weather) into `Observation` objects and stream them
-  through `GaussianBayesianUpdater.update_batch`, so scenario beliefs track reality in near-real-
-  time. Keep `sample`/offline the default; live = opt-in (preserve reproducibility).
-- **`states/base.py` impl** → a `SampleStateEstimator` building a `WorldState` (with per-variable
-  uncertainty) from the V1 feature pipeline (`data/pipeline/`), so the engine starts from a real
-  estimated state rather than the hand-set `liguria_wildfire_state()`. (Deferred from S8.)
-- **`forecasting/` impl** → adapt a `SimulationRun` into a public `Forecast` (mixture over scenarios
-  weighted by **posterior** priors → a single horizon distribution + per-band probabilities; reuse
-  `probability/uncertainty.posterior_mixture_risk` + `scenario_confidence`), plus an API endpoint
-  exposing it. Then the V1 **Analyst** agent that *reads* the `Forecast` and narrates it
-  (LLM-narrates-not-decides — never recompute the numbers). (Deferred from S8.)
-- **Calibration:** the `WildfireHazardModel` coefficients are illustrative (`ponytail:` in
-  `models/wildfire.py`); the `probability/calibration.py` reliability-curve + recalibration are
-  blueprint stubs. Once FIRMS labels exist, fit the hazard (reuse V1's logistic model) and start
-  logging resolved forecasts into a `Calibrator` so `brier_score` becomes a real, tracked metric.
+- **`states/base.py` impl → `SampleStateEstimator`.** Build a `WorldState` (per-variable
+  uncertainty) from the V1 feature pipeline (`data/pipeline/`) instead of the hand-set factory, so
+  the twin reflects estimated reality. Wire it into `build_default_updater()` so streaming starts
+  from an estimated state. (Carried from S8/S9.)
+- **Live observation source → the S9 streaming loop.** Replace synthetic ingest with a real feed:
+  **NASA FIRMS** active-fire detections (then ERA5 weather) mapped into `SensorReading`/
+  `WeatherAlert` events. The streaming plumbing already exists — this is a connector + a poller
+  that POSTs to `/stream/ingest` (or calls `updater.process` directly). Keep offline the default.
+- **Persist the twin + belief history.** The `RealTimeUpdater` state is in-memory only (lost on
+  restart). Add an ORM-backed store for `WorldState` snapshots + the posterior `ScenarioSet` over
+  time, so the twin survives restarts and the belief trajectory is queryable/auditable.
+- **`forecasting/` impl → public `Forecast`.** Adapt a `SimulationRun` into a `Forecast` (mixture
+  over scenarios weighted by **posterior** priors → single horizon distribution + per-band
+  probabilities; reuse `posterior_mixture_risk` + `scenario_confidence`) + an API endpoint. Then
+  the V1 **Analyst** agent that *reads* and narrates it (never recomputes). (Carried from S8.)
+- **Calibration:** `WildfireHazardModel` coefficients are illustrative (`ponytail:` in
+  `models/wildfire.py`); `probability/calibration.py` reliability-curve + recalibration are
+  blueprint stubs. Once FIRMS labels exist, fit the hazard and log resolved forecasts into a
+  `Calibrator` so `brier_score` becomes a tracked metric.
+- **Streaming hardening (when scaling out):** the S9 layer is single-process/in-memory by design
+  (global lock, in-memory debounce dict, in-process WebSocket fan-out). To scale: swap the
+  broadcaster for Redis pub-sub, the debounce dict for a Redis TTL key, and BackgroundTasks for a
+  Celery/Kafka worker — `RealTimeUpdater.process()` stays unchanged (that's the whole point).
 
 0. **Run `docker compose up --build` once** on a machine with Docker (carried from S4/S5). Verify
    the new backend healthcheck flips healthy after migrate+seed+train and the frontend then starts
@@ -737,7 +807,7 @@ Then, highest-leverage:
 cd backend && python -m venv .venv && .venv/Scripts/activate   # (Windows)
 pip install -e ".[dev]"            # add ".[langgraph]" to use the LangGraph engine
 python -m vectis.scripts.demo       # see the whole system work in ~3s, offline
-pytest                             # 66 tests, all green
+pytest                             # 73 tests, all green
 
 # Frontend
 cd frontend && npm install && npm run dev    # http://localhost:5173 (proxies /api → :8000)
