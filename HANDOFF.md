@@ -22,14 +22,26 @@ deprecation fix).
 
 ## Goal
 
-Build **VECTIS** (Autonomous Intelligence System for Decision Analysis): a production-grade,
-open-source **AI decision-intelligence platform** that turns complex real-world data into
-**explainable, actionable** intelligence, answering: *what is happening · why · what could
-happen next · what to do.*
+Build **VECTIS**: a production-grade, open-source **AI decision-intelligence platform** that
+turns complex real-world data into **explainable, actionable** intelligence. First vertical:
+**Climate (wildfire) Risk Intelligence**, demoed on **Liguria, Italy**.
+
+The project is now in two layers:
+
+- **V1 — Reactive Decision Intelligence (COMPLETE, Sessions 1–5).** Answers *what is happening ·
+  why · what could happen next (sensitivity) · what to do*, using a data pipeline, an ML model
+  with SHAP, and LLM agents that narrate (never decide) an explainable `DecisionReport`.
+- **V2 — The Simulation & Forecasting Engine (STARTED, Session 6 = foundation).** Answers a new
+  question: *given the current state of the world, what are all plausible futures, and with what
+  probability?* It produces **distributions over outcomes**, not single numbers, via Monte Carlo.
+
+**The Golden Rule of V2:** LLMs never do math. All probabilistic/statistical computation lives in
+deterministic libraries (`numpy`/`scipy`/`pymc`) behind explicit interfaces. LLMs re-enter only
+as "Analyst" agents that *read* the numerical output. The V1 "LLM-narrates-not-decides" discipline
+is now enforced at the layer boundary: everything inside `simulation/` is pure math.
 
 Non-negotiables: explainable AI, human-in-the-loop, modular architecture, reproducibility,
-clean engineering, exceptional docs. First vertical: **Climate (wildfire) Risk Intelligence**,
-demoed on **Liguria, Italy**.
+clean engineering, exceptional docs.
 
 ---
 
@@ -296,7 +308,70 @@ province coordinates; risk/analysis data wiring into the 3D nodes is left as a n
 
 ---
 
+## Current Progress (V2 Foundation — COMPLETE)
+
+> **Numbering reconciliation:** the V2 brief is labeled "Session 6," but this doc already used
+> *Session 6* for the Matrix/Gotham frontend redesign (it matches the latest commit). To keep the
+> history monotonic this block is the **V2 foundation** session — chronologically after the redesign.
+
+Focus: **build the architectural skeleton + theoretical foundation for the V2 Simulation Engine.**
+Per the brief, **no heavy logic** — no Monte Carlo generator, no statistics. Interfaces, schemas,
+docstrings, and types only. The blueprint, not the building.
+
+**Reconciliation (same lesson as S2/S4 — don't take a brief literally against this HANDOFF):** the
+brief said create `backend/app/simulation/`. There is no `backend/app/`; the package is
+`backend/vectis/`, and a parallel `app/` tree was deliberately rejected in S2. So V2 lives under
+**`backend/vectis/simulation/`**, integrated with the existing tested package — not a duplicate tree.
+
+**What was built (all green: ruff clean, mypy clean on 12 files, schema self-check passes):**
+- **`docs/v2_simulation_engine.md`** — the V2 technical doc: V1(reactive)→V2(probabilistic)
+  transition, an ASCII architecture diagram of the flow *(External Data → State Estimation →
+  Scenario Generation → Monte Carlo → Probabilistic Output → Agent Analysis)*, and definitions of
+  the four core concepts (State, Scenario, Simulation Run, Probability Distribution).
+- **`backend/vectis/simulation/`** package, decoupled from `agents` (verified at import time —
+  loading the whole layer pulls in **zero** `vectis.agents` modules; it depends only on `core`,
+  Pydantic, stdlib). Subpackages: `engine/`, `scenarios/`, `models/`, `states/`, `probability/`,
+  `forecasting/` — each with a docstring'd `__init__.py`.
+- **`simulation/schemas.py`** — the V2 contracts spine (mirrors V1's `core/schemas.py`): Pydantic
+  models for `WorldState`/`StateVariable` (digital twin *with uncertainty*), `Scenario`/`ScenarioSet`
+  (priors **validated to sum to 1** — the invariant that makes outputs real probabilities),
+  `ProbabilityDistribution` (mean/std/p05/p50/p95/exceedance), `SimulationConfig`/`SimulationRun`/
+  `ScenarioOutcome`. Pure data containers — they carry numbers, never compute them. Reuses V1
+  `RiskBand` so V1 and V2 share risk units. Has a tiny `__main__` self-check on the prior-sum guard.
+- **Three mandated ABC interfaces** (strictly typed, docstring-rich, logic-free):
+  `scenarios/base.py` → `ScenarioGenerator.generate(state) -> ScenarioSet`;
+  `engine/monte_carlo.py` → `MonteCarloEngine.run(state, scenarios, config) -> SimulationRun`
+  (contract demands seeded reproducibility + vectorization, no LLM/I/O);
+  `probability/bayesian.py` → `BayesianUpdater.update(prior, observation) -> ScenarioSet` (+ the
+  `Observation` schema). Plus a 4th: `states/base.py` → `StateEstimator.estimate(region) -> WorldState`
+  (the digital-twin builder, since State Estimation is the diagram's first step).
+- `models/` and `forecasting/` are intentionally placeholder packages (docstring'd `__init__.py`)
+  — their concrete shape is chosen alongside the Session 7 Monte Carlo implementation.
+
+**Files added:** `docs/v2_simulation_engine.md`; `backend/vectis/simulation/{__init__,schemas}.py`;
+`simulation/{engine,scenarios,models,states,probability,forecasting}/__init__.py`;
+`simulation/scenarios/base.py`, `simulation/engine/monte_carlo.py`,
+`simulation/probability/bayesian.py`, `simulation/states/base.py`. **Changed:** `HANDOFF.md`.
+
+**Quality bar ("would a Palantir senior approve this for a high-frequency sim engine?"):** the math
+boundary is structural — `simulation/` cannot reach the LLM layer (no agents import), so calculation
+*can't* be delegated to an LLM by construction; schemas force uncertainty + normalized priors;
+configs carry an RNG seed so reproducibility is a first-class contract; the engine ABC mandates
+vectorization for 10k–1M draws. The skeleton is clean, decoupled, and mathematically honest.
+
+---
+
 ## What Worked (decisions that succeeded — keep these)
+
+- **(V2) Pure-math layer, enforced by the dependency graph.** `simulation/` imports only `core` +
+  numerical libs, never `agents`. The Golden Rule (no LLM math) isn't a guideline — it's
+  structurally impossible to violate from inside the package. Verified by an import-time assert.
+- **(V2) Contracts-first again.** Defining `simulation/schemas.py` before any engine logic (as V1
+  did with `core/schemas.py`) means Session 7 fills in interfaces against fixed types. Encoding
+  invariants in the schema (priors sum to 1; uncertainty mandatory on state vars; seed in config)
+  makes whole classes of bugs unrepresentable.
+- **(V2) Reconcile to `backend/vectis/`, not a literal `backend/app/`.** Third time this brief
+  pattern appeared (S2, S4, now); the answer is the same — integrate, don't duplicate the package.
 
 - **Token-driven restyle (S6).** Recoloring ~10 semantic Tailwind tokens + aliasing `font-sans`
   to mono restyled the whole console with edits to only 2 config/style files plus the 2 shared
@@ -454,8 +529,29 @@ S3 LangGraph engine + two-engine interface + extended ML metrics + auditable mod
 S4 the full enterprise frontend console; **S5 OSS/production-readiness hardening** (frontend
 tests in CI, Docker healthchecks + reproducible `npm ci`, `.editorconfig`, repo-structure docs,
 security review); **S6 the "Matrix x Palantir Gotham" tactical redesign** (pure-black/neon/mono
-token theme, radar grid, Arwes 45° corners + glow, interactive 3D Liguria wireframe globe). Note:
-the **NASA FIRMS / live-data work was never done** — it remains the top backend priority.
+token theme, radar grid, Arwes 45° corners + glow, interactive 3D Liguria wireframe globe);
+**V2 Foundation** (the `simulation/` skeleton — schemas + ABC interfaces + docs, no logic). Note:
+the **NASA FIRMS / live-data work was never done** — it remains a top backend priority.
+
+### Session 7 PRIMARY: implement the Monte Carlo engine (V2)
+
+The V2 foundation is laid (`backend/vectis/simulation/`, `docs/v2_simulation_engine.md`). Now build
+the math behind the interfaces — **deterministic libraries only, no LLMs in the calculation**:
+
+- **`engine/monte_carlo.py`** → a concrete `MonteCarloEngine` using a **seeded `numpy.random.Generator`**.
+  Vectorize for 10k–1M draws (sample all iterations as arrays; avoid Python loops). Sample each
+  `StateVariable` per its `DistributionFamily`, apply each scenario's `perturbations`, push through a
+  stochastic model, reduce to `ProbabilityDistribution`, weight by scenario prior.
+- **`models/`** → pick the first stochastic process (a Markov chain over `RiskBand`, or a random walk
+  on the 0–100 risk score is the lazy starting point). Small seedable `step`/`sample` interface.
+- **`states/base.py` impl** → a `SampleStateEstimator` building a `WorldState` from the existing V1
+  feature pipeline (reuse `data/pipeline/`), attaching uncertainty per variable.
+- **`scenarios/base.py` impl** → port the V1 `SimulationAgent`'s 3 hand-tuned scenarios
+  (`hotter_drier_month` etc.) into a `ScenarioGenerator` with explicit priors summing to 1.
+- **`probability/bayesian.py` impl** → start simple (Gaussian likelihood, `scipy`); defer `pymc`.
+- **Tests** (reproducibility is the headline contract): same seed ⇒ byte-identical `SimulationRun`;
+  priors-sum-to-1 enforced; distribution stats sane on a known input. Then a `forecasting/` adapter
+  + an API endpoint, and finally the V1 **Analyst** agent that *reads* the `Forecast` and narrates it.
 
 0. **Run `docker compose up --build` once** on a machine with Docker (carried from S4/S5). Verify
    the new backend healthcheck flips healthy after migrate+seed+train and the frontend then starts
