@@ -52,13 +52,14 @@ class SatelliteAPIConnector(BaseAPIConnector):
     def normalize(self, raw: Any) -> list[GlobalEvent]:
         events: list[GlobalEvent] = []
         for det in raw.get("detections", []):
-            confidence = float(det.get("confidence", 50))
+            confidence = max(0.0, min(float(det.get("confidence", 50)), 100.0))
             # Lower confidence → larger measurement uncertainty.
-            std = _MAX_FRP_STD * (1.0 - max(0.0, min(confidence, 100.0)) / 100.0)
+            std = _MAX_FRP_STD * (1.0 - confidence / 100.0)
             events.append(
                 FireDetectionEvent(
                     source=self.source,
                     location=GeoPoint(lat=float(det["latitude"]), lon=float(det["longitude"])),
+                    confidence=confidence / 100.0,
                     payload={"frp": float(det["frp"]), "std": std},
                 )
             )

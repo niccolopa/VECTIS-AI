@@ -76,8 +76,18 @@ class GlobalEvent(BaseModel):
     ingested_at: datetime = Field(
         default_factory=_utcnow, description="When VECTIS received the event."
     )
+    confidence: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Raw source confidence in this measurement, 0…1 (1 = fully trusted).",
+    )
     payload: dict[str, Any] = Field(
         default_factory=dict, description="Raw, source-specific fields (untrusted)."
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Free-form provenance/traceability (request id, feed url, tile…).",
     )
 
     def to_observation(self) -> GlobalObservation:
