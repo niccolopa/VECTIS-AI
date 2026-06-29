@@ -16,9 +16,13 @@ Keeping these as pure, picklable Pydantic models (no behavior beyond a translati
 hook) is what lets the same event flow through an in-process stub today and a Kafka
 topic tomorrow without change.
 
-Status: **blueprint** (Session 16) — :class:`GlobalEvent` base defined in
-``base.py``; concrete source events (FIRMS, ERA5…) and the global ``Observation``
-arrive with their processors.
+Status: **blueprint** (Session 16) — :class:`GlobalEvent` base and
+:class:`GlobalObservation` defined in ``base.py``; concrete source events (FIRMS,
+ERA5…) arrive with their processors.
 """
 
 from __future__ import annotations
+
+from vectis.realtime.events.base import CellId, GeoPoint, GlobalEvent, GlobalObservation
+
+__all__ = ["CellId", "GeoPoint", "GlobalEvent", "GlobalObservation"]
