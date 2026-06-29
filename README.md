@@ -25,7 +25,7 @@ It simulates **thousands to millions of possible futures**, weights them by a
 continuously-updated belief, and shows you the full distribution — then lets an AI
 analyst board explain it *without ever touching the math*.
 
-VECTIS is built in two layers:
+VECTIS is built in three layers:
 
 - **V1 — Reactive Decision Intelligence.** Answers *what is happening · why · what
   could happen next · what to do*, via a data pipeline, ML with **SHAP**
@@ -35,6 +35,12 @@ VECTIS is built in two layers:
   probability?* It produces **distributions over outcomes** via Monte Carlo, updates
   them in real time with **Bayesian inference**, and runs a **digital twin** of the
   region you care about.
+- **V3 — The Continuous Real-Time Pipeline.** Closes the loop into one living stream:
+  live connectors (weather · satellite/FIRMS) feed a broker, a **Kalman filter** tracks
+  each cell's state *with uncertainty*, a **continuous Bayesian** belief shifts as
+  evidence mounts, and the Monte Carlo engine + analyst board re-fire whenever risk
+  moves materially — a **fast path** (sub-ms Kalman+Bayesian) decoupled from a **slow
+  path** (Monte Carlo + LLM board) so ingestion never blocks on simulation.
 
 The first complete vertical is **Climate (wildfire) Risk Intelligence**, demoed
 end-to-end on **Liguria, Italy**. It runs **fully offline** with a deterministic mock
@@ -50,6 +56,7 @@ LLM and a bundled dataset — **no API keys required**.
 | **Bayesian belief update** | Each observation shifts a posterior over scenarios in log-space (exact, not heuristic) | [`simulation/probability/bayesian.py`](backend/vectis/simulation/probability/bayesian.py) |
 | **Digital twin** | A self-updating `RegionTwin` holds state + belief and re-runs only when beliefs move materially | [`digital_twin/`](backend/vectis/digital_twin/) |
 | **Real-time stream** | `POST /stream/ingest` returns **202 immediately**; CPU-bound math runs off the event loop; results pushed over WebSocket | [`streaming/`](backend/vectis/streaming/) |
+| **Continuous pipeline (V3)** | Live connectors → broker → **Kalman** state estimation → **continuous Bayesian** belief → Monte Carlo → report, as one streaming loop with a fast/slow path split and per-cell burst coalescing | [`realtime/pipeline.py`](backend/vectis/realtime/pipeline.py) |
 | **The Math Firewall** | LLMs **never** compute. Every number on a report is copied from the engine; the AI writes only prose | [`agents/board/`](backend/vectis/agents/board/) |
 | **TTL + LRU caching** | Identical re-runs return in microseconds (~6000× faster) | [`simulation/caching.py`](backend/vectis/simulation/caching.py) |
 | **Distributed-ready** | A Ray/Dask abstraction (override *dispatch* only) with a runnable local stub — zero heavy deps | [`simulation/engine/distributed.py`](backend/vectis/simulation/engine/distributed.py) |
@@ -111,7 +118,8 @@ Dashboard** — with mermaid flow and sequence diagrams and a component-to-code 
        (Scenario Explorer · Probability Timeline ·   (Analyst→Scenario→
         What-If Simulator · AI Brief)                 Debate→Red-Team)
 ```
-<sub>*FIRMS active-fire ingestion is on the V3 roadmap.</sub>
+<sub>*Weather + FIRMS-style active-fire connectors now feed the V3 continuous pipeline
+([`realtime/`](backend/vectis/realtime/)); see `demo_v3_live`.</sub>
 
 | Layer | Stack |
 |---|---|
@@ -133,10 +141,16 @@ cd backend
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
-python -m vectis.scripts.demo_v2     # V2: full simulation pipeline as a tactical console
-make stress                          # 1,000,000-scenario Monte Carlo + honest verdict
-python -m vectis.scripts.demo        # V1: one reactive Decision Report
+python -m vectis.scripts.demo_v3_live  # V3: LIVE continuous stream — risk shifts in real time
+python -m vectis.scripts.demo_v2       # V2: full simulation pipeline as a tactical console
+make stress                            # 1,000,000-scenario Monte Carlo + honest verdict
+python -m vectis.scripts.demo          # V1: one reactive Decision Report
 ```
+
+`demo_v3_live` is the flagship: mock weather + satellite feeds get hotter and drier each
+tick, and you watch the Liguria wildfire risk climb, the scenario belief swing from
+*baseline* to *hotter & drier*, and the decision board re-convene — a living system, not a
+static report. Ctrl+C to stop, or bound it with `--ticks N` (e.g. `--ticks 12 --interval 1`).
 
 ### Option B — the live dashboard
 
@@ -184,23 +198,24 @@ A maintainer's 2-minute showcase script: [`docs/demo_video_script.md`](docs/demo
 
 ---
 
-## Roadmap → V3
+## Roadmap → V4
 
-V2 makes VECTIS a real-time probabilistic engine for **one** twin. V3 turns it into a
-**living, multi-domain intelligence network**:
+V3 closes the real-time loop: a continuous pipeline from live connectors through Kalman
+state estimation and a continuous Bayesian belief to the Monte Carlo engine and analyst
+board, all streaming (`demo_v3_live`). V4 turns it into a **multi-domain intelligence
+network** running against real feeds at scale:
 
-- **Live data streams.** NASA **FIRMS** active-fire ingestion (then ERA5/Copernicus),
-  delivered over **Apache Kafka** so the digital twin reacts to the real world, not
-  synthetic events.
-- **Persistence & history.** ORM-backed twin + belief-trajectory storage, so risk
+- **Real feeds, real transport.** Wire the connectors to live NASA **FIRMS** + ERA5/
+  Copernicus endpoints (API keys), and promote the in-process broker to **Redis Streams
+  / Kafka** so many cells stream concurrently.
+- **Persistence & history.** ORM-backed cell-state + belief-trajectory storage, so risk
   history is queryable and auditable across restarts.
 - **Reinforcement learning for suggested actions.** Move beyond *describing* risk to
   *recommending* interventions (where to pre-position resources) and learning from outcomes.
-- **Multi-twin interaction.** Twins that influence each other across domains —
-  e.g. **Climate × Finance** (wildfire risk → insurance/commodity exposure) — composed
-  through the existing `StateManager`.
+- **Multi-twin interaction.** Cells/twins that influence each other across domains —
+  e.g. **Climate × Finance** (wildfire risk → insurance/commodity exposure).
 - **Horizontal scale.** Promote the distributed stub to real **Ray/Dask** clusters and
-  move `StateManager`/broadcaster/cache to Redis for many regions concurrently.
+  move state/broadcaster/cache to Redis for global coverage.
 
 Full engineering history and next steps: **[`HANDOFF.md`](HANDOFF.md)**.
 
@@ -210,8 +225,11 @@ Full engineering history and next steps: **[`HANDOFF.md`](HANDOFF.md)**.
 
 - **V1 (Sessions 1–6):** complete reactive vertical — pipeline, ML+SHAP, agents, console.
 - **V2 (Sessions 6–15):** complete — Monte Carlo engine, Bayesian update, real-time
-  streaming, digital twin, LangGraph board, 1M-scenario scale, and the dashboard. **107
-  backend tests green.**
+  streaming, digital twin, LangGraph board, 1M-scenario scale, and the dashboard.
+- **V3 (Sessions 16–23):** complete — global event schema, resilient connectors,
+  broker/producer/consumer streaming, Kalman state estimation, continuous Bayesian
+  belief, and the `ContinuousPipeline` that unites them into one live stream
+  (`demo_v3_live`). **140 backend tests green.**
 
 ## Contributing
 
