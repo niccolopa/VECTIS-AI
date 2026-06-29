@@ -48,7 +48,7 @@ class StateUpdater:
     the :class:`StateStore`, so the updater shards trivially across cells.
     """
 
-    def __init__(self, store: StateStore, *, alpha: float = 0.5) -> None:
+    def __init__(self, store: StateStore[WorldCellState], *, alpha: float = 0.5) -> None:
         if not 0.0 < alpha <= 1.0:
             raise ValueError("alpha must be in (0, 1]")
         self._store = store

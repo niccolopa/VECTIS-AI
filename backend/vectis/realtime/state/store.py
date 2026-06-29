@@ -15,34 +15,45 @@ from __future__ import annotations
 import threading
 from abc import ABC, abstractmethod
 from collections import deque
+from typing import Generic, Protocol, TypeVar
 
 from vectis.realtime.events.base import CellId
-from vectis.realtime.state.models import WorldCellState
 
 #: How many superseded versions to retain per cell in the in-memory backend.
 DEFAULT_HISTORY_LIMIT = 100
 
 
-class StateStore(ABC):
+class _CellState(Protocol):
+    """Any versioned per-cell state the store can hold — only needs a ``cell_id``."""
+
+    cell_id: CellId
+
+
+#: The concrete state type a store instance holds (``WorldCellState`` for the EMA path,
+#: ``KalmanCellState`` for the Session-20 filter) — so one store serves both, no fork.
+StateT = TypeVar("StateT", bound=_CellState)
+
+
+class StateStore(ABC, Generic[StateT]):
     """Persistence boundary for per-cell world state + its version history."""
 
     @abstractmethod
-    def get_state(self, cell_id: CellId) -> WorldCellState | None:
+    def get_state(self, cell_id: CellId) -> StateT | None:
         """Return the cell's current (latest) state, or ``None`` if never seen."""
         raise NotImplementedError
 
     @abstractmethod
-    def save_state(self, cell_state: WorldCellState) -> None:
+    def save_state(self, cell_state: StateT) -> None:
         """Persist ``cell_state`` as the new latest, retaining the prior version in history."""
         raise NotImplementedError
 
     @abstractmethod
-    def get_history(self, cell_id: CellId, limit: int = 10) -> list[WorldCellState]:
+    def get_history(self, cell_id: CellId, limit: int = 10) -> list[StateT]:
         """Return up to ``limit`` prior versions of the cell, **newest first**."""
         raise NotImplementedError
 
 
-class MemoryStateStore(StateStore):
+class MemoryStateStore(StateStore[StateT], Generic[StateT]):
     """In-memory store: latest state per cell + a bounded append-only history.
 
     Thread-safe (a single lock guards the dicts) so it can sit behind the streaming
@@ -55,15 +66,15 @@ class MemoryStateStore(StateStore):
 
     def __init__(self, *, history_limit: int = DEFAULT_HISTORY_LIMIT) -> None:
         self._history_limit = history_limit
-        self._latest: dict[CellId, WorldCellState] = {}
-        self._history: dict[CellId, deque[WorldCellState]] = {}
+        self._latest: dict[CellId, StateT] = {}
+        self._history: dict[CellId, deque[StateT]] = {}
         self._lock = threading.Lock()
 
-    def get_state(self, cell_id: CellId) -> WorldCellState | None:
+    def get_state(self, cell_id: CellId) -> StateT | None:
         with self._lock:
             return self._latest.get(cell_id)
 
-    def save_state(self, cell_state: WorldCellState) -> None:
+    def save_state(self, cell_state: StateT) -> None:
         with self._lock:
             prior = self._latest.get(cell_state.cell_id)
             if prior is not None:
@@ -73,7 +84,7 @@ class MemoryStateStore(StateStore):
                 hist.append(prior)
             self._latest[cell_state.cell_id] = cell_state
 
-    def get_history(self, cell_id: CellId, limit: int = 10) -> list[WorldCellState]:
+    def get_history(self, cell_id: CellId, limit: int = 10) -> list[StateT]:
         with self._lock:
             hist = self._history.get(cell_id)
             if not hist:
