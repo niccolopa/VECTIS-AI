@@ -2,14 +2,17 @@
 
 # ▲ VECTIS
 
-**Autonomous Intelligence System for Decision Analysis**
+**Real-Time Probabilistic Decision Intelligence Platform**
 
-*An open-source AI decision-intelligence platform that turns complex real-world data
-into explainable, actionable intelligence.*
+*Open-source. Turns a live stream of real-world observations into explainable
+**distributions over possible futures** — not single-number guesses — and narrates
+them with an auditable AI board whose numbers are produced entirely by deterministic math.*
 
 [![CI](https://github.com/your-org/vectis/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](backend/pyproject.toml)
+[![Backend tests](https://img.shields.io/badge/backend%20tests-107%20passing-brightgreen.svg)](backend/tests)
+[![Scale](https://img.shields.io/badge/Monte%20Carlo-1M%20scenarios%20in%20~0.8s-00ffd5.svg)](docs/v2_simulation_engine.md)
 
 </div>
 
@@ -17,221 +20,202 @@ into explainable, actionable intelligence.*
 
 ## What VECTIS is
 
-VECTIS answers four questions about a complex real-world problem:
+Most "AI risk" tools hand you one number and ask you to trust it. VECTIS refuses to.
+It simulates **thousands to millions of possible futures**, weights them by a
+continuously-updated belief, and shows you the full distribution — then lets an AI
+analyst board explain it *without ever touching the math*.
 
-> **What is happening? · Why is it happening? · What could happen next? · What should we do?**
+VECTIS is built in two layers:
 
-It combines a reproducible **data pipeline**, a **multi-agent AI system**, **machine
-learning with built-in explainability (SHAP)**, lightweight **simulation**, and an
-**enterprise console** — and it never asks you to trust a black box. Every score is
-attributed to its drivers, every claim is backed by evidence, and a mandatory
-**Critic agent** challenges the analysis before it reaches you. A human stays in control.
+- **V1 — Reactive Decision Intelligence.** Answers *what is happening · why · what
+  could happen next · what to do*, via a data pipeline, ML with **SHAP**
+  explainability, and a multi-agent system with a mandatory **Critic**.
+- **V2 — The Simulation & Forecasting Engine.** Answers a harder question: *given the
+  current state of the world, what are all plausible futures, and with what
+  probability?* It produces **distributions over outcomes** via Monte Carlo, updates
+  them in real time with **Bayesian inference**, and runs a **digital twin** of the
+  region you care about.
 
-The first complete vertical is **Climate Risk Intelligence** — wildfire risk — demoed
-end-to-end on **Lombardy, Italy**.
+The first complete vertical is **Climate (wildfire) Risk Intelligence**, demoed
+end-to-end on **Liguria, Italy**. It runs **fully offline** with a deterministic mock
+LLM and a bundled dataset — **no API keys required**.
 
-### Example output — a Decision Intelligence Report
+---
 
-```
-Area:        Lombardy, Italy
-Risk Score:  77/100  (SEVERE)
-Confidence:  89%
-Main Drivers:  drought conditions · vegetation stress · historical fire activity · terrain slope
-Scenario:    "hotter, drier month" → 89/100 (+12)
-Recommended: increase monitoring · pre-position resources · investigate anomalies
-Critic:      APPROVED — all driver claims backed by evidence
-```
+## The engineering that makes it serious
 
-It runs **fully offline** with a deterministic mock LLM and a bundled sample dataset —
-no API keys required.
+| Capability | What it means | Where |
+|---|---|---|
+| **Vectorized Monte Carlo** | 100k–1M scenarios per run in pure NumPy/SciPy, reproducible per `(seed, n_workers)` | [`simulation/engine/runner.py`](backend/vectis/simulation/engine/runner.py) |
+| **Bayesian belief update** | Each observation shifts a posterior over scenarios in log-space (exact, not heuristic) | [`simulation/probability/bayesian.py`](backend/vectis/simulation/probability/bayesian.py) |
+| **Digital twin** | A self-updating `RegionTwin` holds state + belief and re-runs only when beliefs move materially | [`digital_twin/`](backend/vectis/digital_twin/) |
+| **Real-time stream** | `POST /stream/ingest` returns **202 immediately**; CPU-bound math runs off the event loop; results pushed over WebSocket | [`streaming/`](backend/vectis/streaming/) |
+| **The Math Firewall** | LLMs **never** compute. Every number on a report is copied from the engine; the AI writes only prose | [`agents/board/`](backend/vectis/agents/board/) |
+| **TTL + LRU caching** | Identical re-runs return in microseconds (~6000× faster) | [`simulation/caching.py`](backend/vectis/simulation/caching.py) |
+| **Distributed-ready** | A Ray/Dask abstraction (override *dispatch* only) with a runnable local stub — zero heavy deps | [`simulation/engine/distributed.py`](backend/vectis/simulation/engine/distributed.py) |
+
+> **The Golden Rule of V2:** all probabilistic computation lives in deterministic
+> libraries behind explicit interfaces. Nothing under `simulation/` imports the agents
+> layer. LLMs re-enter only as *Analyst* agents that *read* the numbers. The
+> "LLM-narrates-not-decides" discipline is enforced at the type boundary.
+
+---
+
+## Performance & Scale
+
+VECTIS's engine is **vectorized**, not looped. The stress test (`make stress`, see
+[`backend/scripts/stress_test.py`](backend/scripts/stress_test.py)) runs **1,000,000
+scenarios × 3 scenario branches = 3,000,000 trajectory evaluations** and reports the
+honest numbers — measured on a 12-core dev machine:
+
+| Mode | 1M × 3 branches | Throughput | Peak memory |
+|---|---|---|---|
+| **Single-thread vectorized NumPy** | **~0.8 s** | **~3.6 M evals/s** | ~72 MB |
+| Multiprocessing (11 workers) | ~10 s | ~0.3 M evals/s | — |
+| Distributed adapter (local stub) | ~0.7 s | ~4.3 M evals/s | — |
+| Cache warm hit | ~0.0001 s | — | — |
+
+**The honest finding (and we print it every run):** for *cheap* per-sample math, a
+single NumPy thread **beats** multiprocessing by ~12× — process spawn and pickling the
+result arrays back cost more than the compute they parallelize. So parallelism stays
+**off by default**; it pays off only when per-sample cost grows (expensive physics).
+We measured it and documented it rather than assuming a speedup.
+
+Reproducibility is guaranteed per `(seed, n_workers)` via
+`numpy.random.SeedSequence.spawn`: **serial, multiprocessing, and the distributed stub
+all produce byte-identical results**. Details: [`docs/v2_simulation_engine.md`](docs/v2_simulation_engine.md) §10.
 
 ---
 
 ## Architecture
 
-```
-        React + TS console (MapLibre map · SHAP drivers · AI report)
-                              │  /api/v1
-                              ▼
-                     FastAPI  +  AnalysisService
-                              │
-                   Agent Orchestrator (typed DAG)
-        Discovery → Analyst → ML Research → Simulation → Report ⟲ Critic
-                              │
-        ┌─────────────────────┴─────────────────────┐
-        ▼                                            ▼
-  Data pipeline                               ML + explainability
-  ingest→validate→clean→feature-engineer      LogReg/RF/XGBoost · SHAP · model cards
-        │                                            │
-   Connectors (sample / FIRMS·ERA5·Copernicus)  Model registry (disk)
-        │
-   PostgreSQL + PostGIS        LLM: Claude | Mock (env-selected)
-```
+The full real-time pipeline — **External data → Real-Time Updater → Digital Twin →
+Bayesian Update → Monte Carlo Engine (+ cache) → LangGraph Analyst Board → React
+Dashboard** — with mermaid flow and sequence diagrams and a component-to-code map:
+**[`docs/v2_architecture.md`](docs/v2_architecture.md)**.
 
-Full detail: [`docs/architecture.md`](docs/architecture.md).
+```
+   External events (sensors · weather alerts · FIRMS*)
+                       │ POST /stream/ingest (202)
+                       ▼
+            RealTimeUpdater ──► RegionTwin (state + belief)
+                       │              │ Bayesian update
+                       │              ▼
+                       │     Monte Carlo Engine ◄──► TTL/LRU cache
+                       │     100k–1M vectorized scenarios
+                       ▼              │
+              WebSocket push    RiskState + per-scenario distributions
+                       │              │ (read-only numbers · Math Firewall)
+                       ▼              ▼
+            React Dashboard ◄── LangGraph Analyst Board
+       (Scenario Explorer · Probability Timeline ·   (Analyst→Scenario→
+        What-If Simulator · AI Brief)                 Debate→Red-Team)
+```
+<sub>*FIRMS active-fire ingestion is on the V3 roadmap.</sub>
 
 | Layer | Stack |
 |---|---|
-| Backend | Python 3.11, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic |
-| Data | pandas, content-hashed pipeline, PostGIS |
-| ML | scikit-learn, XGBoost, **SHAP** |
-| Agents | typed orchestrator + Critic loop, **two engines (custom / LangGraph)**; Anthropic Claude or mock |
-| Frontend | React 18, TypeScript, MapLibre GL, Recharts |
+| Simulation | **NumPy · SciPy** (vectorized Monte Carlo, Bayesian inference) |
+| Backend | Python 3.11, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, structlog |
+| Agents | LangGraph board + custom DAG (two engines); Anthropic Claude or deterministic mock |
+| ML (V1) | scikit-learn, XGBoost, **SHAP** |
+| Frontend | React 18, TypeScript, Vite, Tailwind, TanStack Query, **Recharts**, MapLibre GL |
 | Infra | Docker Compose, GitHub Actions CI, ruff + mypy + pytest |
-
-> **Architecture diagram:** the ASCII overview above is the canonical diagram; a rendered
-> version belongs under `docs/assets/` (placeholder — see `docs/architecture.md`).
-
-### Repository structure
-
-```
-VECTIS/
-├── backend/                 # FastAPI service, agents, ML, data pipeline
-│   ├── vectis/
-│   │   ├── api/             # FastAPI app + routers (analyses, regions, models, health)
-│   │   ├── agents/          # orchestrator + 6 agents + LLM clients (two engines)
-│   │   ├── core/            # config, logging, exceptions, schemas (the contracts spine)
-│   │   ├── data/            # regions, connectors (sample + live stubs), pipeline
-│   │   ├── models/          # training, evaluation, SHAP explain, registry, predictor
-│   │   ├── database/        # SQLAlchemy models, session, repository
-│   │   ├── services/        # AnalysisService (orchestration entry point)
-│   │   └── scripts/         # generate_sample, train, demo
-│   ├── alembic/             # database migrations
-│   └── tests/               # unit · model · integration · api  (pytest)
-├── frontend/                # React + TS decision-intelligence console
-│   └── src/                 # app · pages · features · components · hooks · services · stores
-├── docs/                    # architecture · agents · ml_pipeline · data_pipeline · frontend · development
-├── data/                    # bundled sample + staging dirs (raw/processed/…)
-├── .github/                 # CI workflow, issue/PR templates
-├── docker-compose.yml       # db (PostGIS) + backend + frontend
-└── HANDOFF.md               # cross-session engineering source of truth
-```
-
----
-
-## Intelligence layer (AI agents + ML)
-
-VECTIS threads a typed `AgentState` through six agents — **Discovery → Analyst →
-ML Research → Simulation → Report ⟲ Critic** — to produce an explainable,
-human-in-the-loop Decision Report. Highlights:
-
-- **Two interchangeable orchestration engines** behind one interface, selected by
-  `VECTIS_ORCHESTRATOR`: a default **`custom`** typed DAG (deterministic, dependency-light)
-  and an optional **`langgraph`** `StateGraph`. Both run the same agents and produce
-  identical reports (parity-tested). → [`docs/agents.md`](docs/agents.md)
-- **Mandatory Critic** — a deterministic gate that blocks any claim not backed by
-  evidence and can trigger a bounded revision loop. No report bypasses it.
-- **ML with built-in explainability** — LogReg/RF/XGBoost are compared and selected by
-  discrimination + calibration; every prediction carries **SHAP** drivers, so it always
-  answers *"why did the model decide this?"*. → [`docs/ml_pipeline.md`](docs/ml_pipeline.md)
-- **LLM narrates, never decides** — agents compute structured, evidence-backed results;
-  the LLM only phrases them, with a deterministic offline fallback.
 
 ---
 
 ## Quick start
 
-### Option A — Docker (full stack)
-
-```bash
-cp .env.example .env
-make up          # db (PostGIS) + backend + frontend
-# Backend: http://localhost:8000/docs   Frontend: http://localhost:5173
-```
-
-The backend applies migrations (`alembic upgrade head`), seeds the sample dataset, and
-trains a model on first start. Probes: `GET /health` (liveness),
-`GET /health/ready` (database connectivity).
-
-### Option B — Local backend (no Docker, no API key)
+### Option A — the offline demos (no Docker, no API key)
 
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
-python -m vectis.scripts.demo        # run one analysis, print the Decision Report
-make api                            # or serve the API at :8000
+python -m vectis.scripts.demo_v2     # V2: full simulation pipeline as a tactical console
+make stress                          # 1,000,000-scenario Monte Carlo + honest verdict
+python -m vectis.scripts.demo        # V1: one reactive Decision Report
 ```
 
-Then in another shell:
+### Option B — the live dashboard
 
 ```bash
-curl -X POST localhost:8000/api/v1/analyses -H "Content-Type: application/json" \
-     -d '{"region":"liguria"}'
+# terminal 1 — backend API at :8000
+cd backend && make api
+
+# terminal 2 — frontend at :5173
+cd frontend && npm install && npm run dev
 ```
 
-### Frontend dev server
+Open <http://localhost:5173> and click **Decision Intelligence** in the sidebar for the
+V2 dashboard. Push a live observation and watch the Probability Timeline move:
 
 ```bash
-cd frontend && npm install && npm run dev   # http://localhost:5173 (proxies /api → :8000)
+curl -s -X POST localhost:8000/api/v1/stream/ingest -H "Content-Type: application/json" \
+  -d '{"kind":"weather_alert","source":"demo","region":"liguria","variable":"temp_anomaly_c","value":4.0,"severity":"critical"}'
 ```
 
----
-
-## Frontend — Decision Intelligence Console
-
-An **enterprise operational-intelligence console** (Palantir-style: dense, dark, fast) that
-consumes the real backend API. Stack: **React 18 + TypeScript + Vite + Tailwind + React Router
-+ TanStack Query + Zustand**, with **MapLibre GL** (open-source vector maps, no token/billing)
-for the risk map and **Recharts** for SHAP/driver charts.
-
-Pages (sidebar): **Overview · Risk Intelligence · Maps · Reports · Simulations · Datasets**.
-The Risk Intelligence view runs an analysis and renders an interactive risk map, a risk-detail
-panel (score, confidence, drivers, recommended actions), and the AI Decision Report with
-explicit separation of *AI insight* vs *supporting evidence* vs *human decision*. Server state
-goes through TanStack Query hooks; the only mock-backed view is the Datasets catalog (clearly
-labeled under `services/mocks/`, pending a backend endpoint).
+### Option C — Docker (full stack)
 
 ```bash
-cd frontend
-npm run build   # tsc -b && vite build
-npm run lint    # eslint, 0 warnings
-npm run test    # vitest + Testing Library + MSW
+cp .env.example .env
+make up          # db (PostGIS) + backend + frontend
 ```
 
-> **Screenshots:** _placeholder_ — add console captures (Overview, Risk Intelligence map,
-> Report viewer) under `docs/assets/` and link them here.
-
-Full architecture, library rationale, and the real-vs-mock policy: [`docs/frontend.md`](docs/frontend.md).
+> Use a real LLM by setting `VECTIS_LLM_PROVIDER=claude` and `VECTIS_ANTHROPIC_API_KEY`
+> (`pip install -e '.[llm]'`). The LLM only *narrates* already-computed numbers.
 
 ---
 
-## Example analysis (what happens under the hood)
+## The V2 Dashboard
 
-1. **Discovery** acquires the Liguria grid (240 cells) from the sample connector.
-2. **Analyst** runs the pipeline and surfaces signals ("62% of cells show elevated drought").
-3. **ML Research** scores each cell and attributes the score to drivers via SHAP.
-4. **Simulation** perturbs climate drivers ("hotter, drier month") and re-scores.
-5. **Report** composes a Decision Report — score, drivers, evidence, recommended actions.
-6. **Critic** verifies every driver is backed by evidence and the actions match the risk;
-   it can send the report back for a bounded revision.
+A dark, dense, tactical console (Matrix × Palantir) that consumes the real engine:
 
----
+- **Scenario Explorer** — each branch (Baseline · Hotter & Drier · Extreme Wind) as a
+  **box-and-whisker** over its full outcome distribution (p05/p50/p95), not a single number.
+- **Probability Timeline** — risk × confidence over time, fed live by the WebSocket stream.
+- **What-If Simulator** — drag temperature/humidity/vegetation/fire-history and re-run the
+  Monte Carlo **synchronously** (cache-served), with the delta vs. current risk.
+- **AI Intelligence Brief** — the LangGraph board's report: analyst summary, scenario
+  storylines, an optimist/pessimist debate, and a red-team critique.
 
-## Extending VECTIS
-
-- **Add an agent** → [`docs/agents.md`](docs/agents.md)
-- **Add a dataset / live connector** → [`docs/data_pipeline.md`](docs/data_pipeline.md)
-- **Frontend architecture & conventions** → [`docs/frontend.md`](docs/frontend.md)
-- **Dev workflow, testing, conventions** → [`docs/development.md`](docs/development.md)
-
-Use a real LLM by setting `VECTIS_LLM_PROVIDER=claude` and `VECTIS_ANTHROPIC_API_KEY`
-(install extras: `pip install -e '.[llm]'`). The LLM only *narrates* already-computed,
-evidence-backed findings — it never invents numbers — so outputs stay explainable.
+A maintainer's 2-minute showcase script: [`docs/demo_video_script.md`](docs/demo_video_script.md).
 
 ---
 
-## Project status & roadmap
+## Roadmap → V3
 
-VECTIS v1.0 (Session 1) delivers the foundation **and a complete working vertical slice**.
-See [`HANDOFF.md`](HANDOFF.md) for engineering history and next steps. Highlights on the
-roadmap: live Earth-observation connectors (NASA FIRMS / ERA5 / Copernicus), a knowledge-graph
-layer, additional regions, authentication, and LLM-assisted (not LLM-decided) critique.
+V2 makes VECTIS a real-time probabilistic engine for **one** twin. V3 turns it into a
+**living, multi-domain intelligence network**:
+
+- **Live data streams.** NASA **FIRMS** active-fire ingestion (then ERA5/Copernicus),
+  delivered over **Apache Kafka** so the digital twin reacts to the real world, not
+  synthetic events.
+- **Persistence & history.** ORM-backed twin + belief-trajectory storage, so risk
+  history is queryable and auditable across restarts.
+- **Reinforcement learning for suggested actions.** Move beyond *describing* risk to
+  *recommending* interventions (where to pre-position resources) and learning from outcomes.
+- **Multi-twin interaction.** Twins that influence each other across domains —
+  e.g. **Climate × Finance** (wildfire risk → insurance/commodity exposure) — composed
+  through the existing `StateManager`.
+- **Horizontal scale.** Promote the distributed stub to real **Ray/Dask** clusters and
+  move `StateManager`/broadcaster/cache to Redis for many regions concurrently.
+
+Full engineering history and next steps: **[`HANDOFF.md`](HANDOFF.md)**.
+
+---
+
+## Project status
+
+- **V1 (Sessions 1–6):** complete reactive vertical — pipeline, ML+SHAP, agents, console.
+- **V2 (Sessions 6–15):** complete — Monte Carlo engine, Bayesian update, real-time
+  streaming, digital twin, LangGraph board, 1M-scenario scale, and the dashboard. **107
+  backend tests green.**
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) and our [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 Security policy: [`SECURITY.md`](SECURITY.md).
 
 ## License
