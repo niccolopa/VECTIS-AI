@@ -4,7 +4,14 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-30** · End of **Session 23** (Live Climate Risk Demo —
+Last updated: **2026-06-30** · End of **Session 24** (Real-Time Frontend Layer —
+the V3 `ContinuousPipeline` is now exposed over **Server-Sent Events** (`GET /api/v1/stream/v3/live`,
+`realtime/live_stream.py` → `LiveClimateStream` yielding JSON forecast frames), and a new **Live
+Intelligence** React console subscribes via `hooks/useV3Stream.ts` (rAF-coalesced rendering so a
+high-frequency stream never freezes the browser) to drive five real-time components — live header,
+recoloring MapLibre cell, dual-axis risk/confidence timeline, animated Bayesian posterior bars, and a
+rolling event feed — assembled in `pages/LiveIntelligencePage.tsx` at `/live`. **142 backend + 14
+frontend tests pass.**) · Session 23 (Live Climate Risk Demo —
 `scripts/demo_v3_live.py`: drives the V3 `ContinuousPipeline` as a *living* terminal stream.
 Ramping offline weather + satellite connectors emit hotter/drier JSON each tick into an
 `IngestionManager` → `EventProducer` → broker; the pipeline folds every reading through
@@ -1374,6 +1381,96 @@ variance shrinks (1.00 → 0.09), and the **board re-convenes** on each material
   `risk_change_threshold`, `process_noise_rate`, MC `n_iterations` are all illustrative.
 - **Persistence & RL:** ORM-backed cell-state + belief-trajectory history; move from *describing* risk to
   *recommending* interventions and learning from outcomes.
+---
+
+## Current Progress (Session 24 — Real-Time Frontend Layer — COMPLETE)
+
+### Goal
+Bring the V3 *living* backend (S22 `ContinuousPipeline`, S23 terminal demo) to the **React console**:
+expose the continuous engine over a real HTTP stream and replace static API calls with dynamic,
+continuously-updating visualizations — so the enterprise UI shows the Liguria wildfire risk *shift in
+real time*, performantly, without freezing under a high event rate.
+
+### Current Progress: Session 24 (Real-Time Frontend Layer — COMPLETE)
+**Backend — exposed V3 as a stream (the missing transport).** Before this session the
+`ContinuousPipeline` was only drivable from the terminal demo; nothing V3 was on HTTP (the existing
+`/api/v1/stream/ws` is the V2 `StateChange` path). Chose **Server-Sent Events** as best-suited: strictly
+server→client, native `EventSource` auto-reconnect, and a heavy compute loop maps cleanly to an async
+generator.
+- **`backend/vectis/realtime/live_stream.py`** — lifted the two ramping offline feeds out of the demo
+  script (`RampingWeatherConnector` / `EscalatingSatelliteConnector`) into a reusable home, plus
+  **`LiveClimateStream`**: wires the pipeline + `IngestionManager` and exposes `async frames()` yielding
+  JSON-serializable frame dicts (tick, cell, risk, prev_risk, band, confidence, driver, Kalman temp
+  mean/variance/delta, posterior, the raw events that drove the tick, and the full decision report —
+  attached exactly the frame it's generated on, never re-sent). The demo now imports the connectors from
+  here (no duplication; demo still green).
+- **`backend/vectis/api/routers/live.py`** — `GET /api/v1/stream/v3/live` returns a `StreamingResponse`
+  (`text/event-stream`) driving a fresh `LiveClimateStream` per connection; stops on client disconnect
+  (`request.is_disconnected()`). `interval`/`iterations` query params. Wired in `api/main.py`.
+- **`tests/realtime/test_live_stream.py`** — frame JSON contract, event-feed normalization, posterior
+  sums to 1, `prev_risk` threading, report-dedup. **142 pytest pass** (was 140); ruff + mypy clean.
+
+**Frontend — the Live Intelligence console.**
+- **`hooks/useV3Stream.ts`** — subscribes to the SSE endpoint via `EventSource`; exposes `latest`
+  frame, an accumulated `timeline` (risk+confidence, capped 240), a rolling `events` log (capped 100),
+  and `connected`. **Performance core:** incoming frames land in **refs (no render)** and a single
+  **`requestAnimationFrame`** flush coalesces a burst into one `setState` per paint (~60fps ceiling) —
+  10 frames between two paints collapse to one render of the freshest state.
+- **`features/realtime/` — five stream-fed components** (pure/prop-driven, animation-light):
+  `LiveIntelligenceHeader` (cell · current vs previous risk · trend · confidence+σ² · primary driver);
+  `LiveRiskMap` (reuses the MapLibre `RiskMap`, the cell recolors along the shared risk ramp, pulsing
+  "LIVE" ring); `RiskEvolutionTimeline` (**true dual-axis** Recharts — risk left, confidence right,
+  `isAnimationActive={false}`); `ProbabilityBars` (CSS width-transition bars for the shifting Bayesian
+  posterior — smoother than re-rendering a chart per frame); `EventFeed` (rolling terminal-style log,
+  defensively capped via a `max` prop).
+- **`pages/LiveIntelligencePage.tsx`** — composes all five over **one** SSE subscription; wired into the
+  router (`/live`) and the sidebar (new `IconLive` broadcast icon, placed second). Inherits the dark
+  tactical console design system from the shared UI primitives.
+- **`features/realtime/__tests__/realtime.test.tsx`** — EventFeed caps at `max` (renders newest, drops
+  beyond the limit); every component renders without crashing on continuous mock frames. **14 Vitest
+  pass** (was 7). tsc + eslint clean; `vite build` succeeds.
+
+### What Worked
+- **SSE over WebSocket for a server→client compute stream.** `EventSource` reconnects itself (no manual
+  backoff like the V2 socket), the endpoint is a plain `StreamingResponse` over an async generator, and
+  client disconnect tears the per-connection pipeline down — far less glue than a WS fan-out for a feed
+  nothing writes back to.
+- **rAF-coalesced rendering as the freeze-proofing.** Buffering frames in refs and committing once per
+  animation frame decouples render rate from event rate structurally — the single highest-leverage
+  decision for "10 events/sec must not freeze the browser." No throttle constant to tune.
+- **Reusing what already shipped.** The MapLibre `RiskMap`, the Recharts dual-axis pattern, every UI
+  primitive (`Card`/`Badge`/`RiskScore`), the maplibre test stub, and `renderWithProviders` were all
+  reused — the new surface is five small components + one hook + one thin SSE route.
+- **Lifting the ramping feeds into a reusable module.** Sharing them between the terminal demo and the
+  API stream (instead of importing from `scripts/`) kept layering clean and the demo unchanged.
+
+### What Didn't Work / Gotchas
+- **Nothing V3 was on HTTP yet.** The brief said "connect to the V3 backend stream," but the only V3
+  driver was the terminal demo; the existing WS is V2. Had to build the SSE transport first — the
+  frontend "connect" step is real only because the backend stream now exists.
+- **A fresh pipeline per SSE connection.** Each viewer gets its own `LiveClimateStream` (its own ramp
+  from a calm baseline) — nice for a demo, but N connections = N Monte Carlo loops. `ponytail:` flagged;
+  a shared broadcast pipeline (one engine, fan-out to many clients) is the upgrade when concurrency matters.
+- **Recharts `width(0)` warning in jsdom.** Benign — jsdom has no layout, the `ResponsiveContainer` still
+  mounts and the test asserts it renders; same warning the existing V2 timeline test emits.
+- **`temp_delta` / overlay var-name mismatch carried over from S23** (Kalman names `temperature`, base
+  `WorldState` uses `temp_anomaly_c`) — risk still rides the Bayesian reweight, not the overlay. Out of
+  scope; still flagged for V4.
+
+### Next Steps (Session 25 — Final V3 Polish & Documentation)
+- **Document the real-time layer** in `docs/frontend.md` + `docs/v2_simulation_engine.md` (or a new
+  `docs/v3_*.md`): the SSE contract, the frame schema, the rAF rendering strategy, and the `/live` page.
+  Add the Live Intelligence page to the README feature list + a screenshot.
+- **Shared broadcast pipeline:** replace per-connection `LiveClimateStream` with one engine fanning out
+  to many SSE clients (resolve the `ponytail:` note) so the console scales past a single viewer.
+- **Polish the page:** surface the streamed `report` (decision board narrative) in a panel when it
+  arrives, a connection/last-tick indicator, and graceful empty/reconnecting states.
+- **Fix the overlay var-name mapping** (S23 carry-over) so live Kalman means project onto the MC
+  `WorldState`; then lift the single-belief `ponytail:` to per-cell beliefs for multi-region streaming.
+- **End-to-end check:** an integration test that hits `/api/v1/stream/v3/live` and asserts ≥1 SSE frame
+  parses (bound it with a low `iterations` + a client-side disconnect).
+- **Calibrate the tuning knobs against real data** (carried from S23): scenario profiles, `relax_rate`,
+  `risk_change_threshold`, MC `n_iterations`.
 ---
 
 ## What Worked (decisions that succeeded — keep these)
