@@ -4,7 +4,14 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-30** · End of **Session 22** (Real-Time Forecasting Pipeline —
+Last updated: **2026-06-30** · End of **Session 23** (Live Climate Risk Demo —
+`scripts/demo_v3_live.py`: drives the V3 `ContinuousPipeline` as a *living* terminal stream.
+Ramping offline weather + satellite connectors emit hotter/drier JSON each tick into an
+`IngestionManager` → `EventProducer` → broker; the pipeline folds every reading through
+Kalman → continuous Bayesian → Monte Carlo → decision report, and a tactical console redraws
+per tick. Verified alive: risk 77 → 93, belief swings baseline → hotter_drier (0.7% → 94%),
+confidence dips through the contested transition, board re-convenes on material moves. 140
+tests pass. **V3 COMPLETE.**) · Session 22 (Real-Time Forecasting Pipeline —
 `realtime/pipeline.py`: `ContinuousPipeline` unites every V3 layer into one continuous flow —
 `Live Data → Events → Kalman → Bayesian → Monte Carlo (V2) → Decision Report (V2 board)`. A
 **fast path** (Kalman+Bayesian, sub-ms, in the consumer) is decoupled from a **slow path**
@@ -1296,6 +1303,77 @@ Smoke run: drought + heat + wind for one cell → risk ~94/100 SEVERE, posterior
   `process_noise_rate`, MC `n_iterations` are all illustrative; fit to live FIRMS/ERA5 feeds.
 - **Productize:** package the pipeline as a runnable service (`make pipeline` / a `scripts/` entrypoint),
   document the architecture in `docs/`, and add a Redis-broker integration path for multi-node throughput.
+---
+
+## Current Progress (Session 23 — Live Climate Risk Demo — COMPLETE)
+
+### Goal
+Turn the wired-but-headless `ContinuousPipeline` (S22) into a **runnable, end-to-end demo that
+proves the V3 system works on a continuous data stream** — the Liguria wildfire scenario, rendered
+as a tactical terminal that visibly *comes alive* as mock weather gets hotter and drier. Plus
+productization: update the README to declare V3 complete with the exact run command.
+
+### Current Progress: Session 23 (Live Climate Risk Demo — COMPLETE)
+New script **`backend/vectis/scripts/demo_v3_live.py`** (+ `tests/realtime/test_demo_v3_live.py`).
+- **`run_live(...)`** — async loop that bootstraps the pipeline + an `IngestionManager`, then per tick:
+  `producer.poll_and_publish()` (poll connectors → broker) → `pipeline.start(max_events=burst)` (consume
+  exactly that burst, drain Kalman → Bayesian → Monte Carlo → report) → render one clean block. Lockstep
+  by design so the terminal never races the math; returns `LiveFrame`s so it is testable headlessly.
+- **Two ramping offline connectors** subclass the real S17 connectors (so they *are* a
+  `WeatherAPIConnector` / `SatelliteAPIConnector`): `RampingWeatherConnector` emits temp climbing
+  (+2.1°C/tick), humidity falling, wind rising, and a **drought index** rising (emitted as an extra
+  normalized `WeatherEvent` since the base payload has no drought slot); `EscalatingSatelliteConnector`
+  emits growing fire-radiative-power. No network, no key — deterministic.
+- **Tactical console** reuses `demo_v2`'s `Console`/ANSI/`_force_utf8_stdout`/`_silence_logs` (no new
+  deps, no `rich`), clears the screen per tick, and prints the brief's exact block: Current/Previous
+  Risk, Trend, Primary Driver (+ live Kalman temp Δ), Confidence (+ Kalman variance), and a posterior
+  bar chart. `--ticks N` / `--interval` / `--iterations` flags; Ctrl+C clean exit.
+- **README** updated: three-layer framing, a Continuous-Pipeline row in the engineering table, the
+  `python -m vectis.scripts.demo_v3_live` command as the flagship quick-start, FIRMS footnote fixed,
+  roadmap reframed to V4, project status → V3 complete / 140 tests.
+
+**Verified alive (the quality check):** over ~11 ticks risk climbs **77 → 93**, the belief swings
+**baseline 99% → hotter_drier 94%**, the primary-driver label flips to "Temperature & rainfall
+anomaly", **confidence dips** (96% → 35%) through the contested transition then recovers, Kalman
+variance shrinks (1.00 → 0.09), and the **board re-convenes** on each material move. ruff + mypy clean;
+**140 pytest pass** (was 139).
+
+### What Worked
+- **Driving the pipeline in lockstep via `start(max_events=burst)` per tick.** Reused the public API
+  instead of free-running producer/consumer/render tasks that would race — each tick publishes a burst,
+  the pipeline drains it (fast + slow path) and returns, then we render. Clean, deterministic, testable.
+- **Subclassing the real connectors to ramp.** Kept the `WeatherAPIConnector`/`SatelliteAPIConnector`
+  *types* the brief asked for while overriding only `fetch` (and `normalize` for drought) — the
+  resilient base, the `to_observation` hooks, and the whole ingestion path are exercised unchanged.
+- **Reusing `demo_v2`'s console toolkit.** Zero new rendering code or deps; the screen-clear per tick is
+  one ANSI escape. The "alive" feeling is data, not framework.
+
+### What Didn't Work / Gotchas
+- **`build_default_pipeline()` locks the belief at baseline forever.** It sets `relax_rate=0.0`, so once
+  the first (calm) reading collapses the posterior onto baseline ~1.0, no later evidence can move it
+  (`0 × likelihood = 0`) — the demo's posterior was pinned at baseline 100% and confidence stuck at 100%.
+  Fix: the demo wires its own `ScenarioPriors(relax_rate=0.4)` so the belief can swing as heat/drought
+  build, then settle. Lesson: a *continuous* belief needs a positive relax rate to stay responsive.
+- **Pipeline overlay var-name mismatch (left as-is).** The base `WorldState` names temperature
+  `temp_anomaly_c`, but the Kalman store canonicalizes it to `temperature`, so `_overlay_state` never
+  projects the live temp mean onto the MC state — risk movement rides on the **Bayesian posterior
+  reweighting**, not the overlay. Out of scope for a demo session; flagged for the overlay fix in V4.
+- **`temp_delta` shows the Kalman-filtered Δ (~+1.1°C), not the raw +2.1°C reading.** Correct (the filter
+  lags the raw feed), just worth knowing when reading the "Primary Driver" line.
+
+### Next Steps — Handover to the Community / V4 Roadmap
+- **Real feeds + real transport:** wire the connectors to live NASA FIRMS + ERA5/Copernicus endpoints
+  (API keys) and promote the in-process broker to Redis Streams / Kafka for many cells concurrently.
+- **Fix the overlay var-name mapping** so live Kalman means project onto the MC `WorldState`, and lift
+  the single-belief `ponytail:` to **per-cell** beliefs/`WorldState` for true multi-region streaming.
+- **The first concrete `Processor`** (open since S18): real grid `CellId` assignment (replace
+  `naive_cell_id`), validate/dedupe.
+- **Stream `ForecastResult` to the frontend** over WebSocket so the dashboard's Probability Timeline is
+  fed by the continuous pipeline, not the V2 `StateChange` path.
+- **Calibrate the tuning knobs against real data:** scenario profiles, `relax_rate`,
+  `risk_change_threshold`, `process_noise_rate`, MC `n_iterations` are all illustrative.
+- **Persistence & RL:** ORM-backed cell-state + belief-trajectory history; move from *describing* risk to
+  *recommending* interventions and learning from outcomes.
 ---
 
 ## What Worked (decisions that succeeded — keep these)
