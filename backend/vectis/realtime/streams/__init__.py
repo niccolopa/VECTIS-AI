@@ -20,8 +20,25 @@ implementation is a set of **Kafka** topics/partitions. Callers — processors a
 estimator — depend only on the abstract ``Stream`` contract and never learn which is
 behind it.
 
-Status: **blueprint** (Session 16) — contract only; the in-process and Kafka
-implementations land in later sessions.
+Status (Session 18): the abstract :class:`MessageBroker` plus an in-process
+:class:`MemoryBroker` (default) and a :class:`RedisStreamBroker` adapter are live in
+``broker.py``; :func:`get_broker` selects the backend from ``VECTIS_BROKER``.
 """
 
 from __future__ import annotations
+
+from vectis.realtime.streams.broker import (
+    DEFAULT_TOPIC,
+    MemoryBroker,
+    MessageBroker,
+    RedisStreamBroker,
+    get_broker,
+)
+
+__all__ = [
+    "DEFAULT_TOPIC",
+    "MemoryBroker",
+    "MessageBroker",
+    "RedisStreamBroker",
+    "get_broker",
+]

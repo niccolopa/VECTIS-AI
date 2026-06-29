@@ -52,6 +52,10 @@ llm = [
 langgraph = [
     "langgraph>=0.2",
 ]
+# Redis Streams broker for production event streaming (VECTIS_BROKER=redis).
+redis = [
+    "redis>=5.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["vectis*"]
