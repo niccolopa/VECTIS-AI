@@ -19,6 +19,7 @@ from vectis.core.exceptions import VectisError
 from vectis.core.logging import configure_logging, get_logger
 from vectis.database.repository import build_repository
 from vectis.services.analysis_service import AnalysisService
+from vectis.services.dashboard_service import DashboardService
 from vectis.streaming.broadcaster import ConnectionManager
 from vectis.streaming.updater import build_default_updater
 
@@ -32,6 +33,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     repository = build_repository()
     app.state.service = AnalysisService(repository=repository)
     app.state.updater = build_default_updater()
+    # Dashboard shares the updater's twin registry, so live ingest updates show up.
+    app.state.dashboard = DashboardService(app.state.updater.manager)
     app.state.broadcaster = ConnectionManager()
     log.info("api.startup", env=settings.env, llm_provider=settings.llm_provider)
     yield
@@ -63,7 +66,15 @@ def create_app() -> FastAPI:
         )
 
     # Routers (imported here to avoid circulars at module import time).
-    from vectis.api.routers import analyses, health, intelligence, models, regions, stream
+    from vectis.api.routers import (
+        analyses,
+        dashboard,
+        health,
+        intelligence,
+        models,
+        regions,
+        stream,
+    )
 
     app.include_router(health.router)
     app.include_router(analyses.router)
@@ -71,6 +82,7 @@ def create_app() -> FastAPI:
     app.include_router(models.router)
     app.include_router(stream.router)
     app.include_router(intelligence.router)
+    app.include_router(dashboard.router)
     return app
 
 

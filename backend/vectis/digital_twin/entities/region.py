@@ -52,6 +52,43 @@ def _total_variation(prior: ScenarioSet, posterior: ScenarioSet) -> float:
     return 0.5 * sum(abs(s.prior - post.get(s.id, 0.0)) for s in prior.scenarios)
 
 
+def region_to_world_state(twin_id: str, state: RegionState) -> WorldState:
+    """Map a region's domain state onto the engine's ``WorldState`` variables.
+
+    This is the *only* engine-specific knowledge in the region twin, factored to a
+    module function so callers that need to simulate an *arbitrary* state (e.g. the
+    dashboard what-if endpoint sliding temperature to +5 °C) can reuse the exact same
+    mapping the twin uses internally. Vegetation stress and recent fires raise the
+    ignition rate; low humidity becomes a negative rainfall anomaly. Uncertainties
+    mirror the Session-7 Liguria twin.
+    """
+    rainfall_anomaly = state.humidity_level - 50.0
+    ignition = max(
+        0.0, 1.5 + state.recent_fire_history * 0.5 + (state.vegetation_stress - 50.0) * 0.02
+    )
+    return WorldState(
+        region=twin_id,
+        variables=[
+            StateVariable(
+                name="temp_anomaly_c", value=state.temperature_anomaly,
+                family=DistributionFamily.NORMAL, std=0.5, unit="°C",
+            ),
+            StateVariable(
+                name="rainfall_anomaly_pct", value=rainfall_anomaly,
+                family=DistributionFamily.NORMAL, std=8.0, unit="%",
+            ),
+            StateVariable(
+                name="wind_speed_kmh", value=_WIND_BASELINE_KMH,
+                family=DistributionFamily.LOGNORMAL, std=0.25, unit="km/h",
+            ),
+            StateVariable(
+                name="ignition_sources", value=ignition,
+                family=DistributionFamily.POISSON, unit="count/day",
+            ),
+        ],
+    )
+
+
 class RegionState(TwinState):
     """The physical state of a region twin.
 
@@ -162,38 +199,9 @@ class RegionTwin(DigitalTwin):
 
     # ── internals: the engine boundary ───────────────────────────────────────
     def _to_world_state(self) -> WorldState:
-        """Map the twin's domain state onto the engine's ``WorldState`` variables.
-
-        This is the *only* engine-specific knowledge in the twin. Vegetation stress
-        and recent fires raise the ignition rate; low humidity becomes a negative
-        rainfall anomaly. Uncertainties mirror the Session-7 Liguria twin.
-        """
-        s = self._state
-        rainfall_anomaly = s.humidity_level - 50.0
-        ignition = max(
-            0.0, 1.5 + s.recent_fire_history * 0.5 + (s.vegetation_stress - 50.0) * 0.02
-        )
-        return WorldState(
-            region=self.twin_id,
-            variables=[
-                StateVariable(
-                    name="temp_anomaly_c", value=s.temperature_anomaly,
-                    family=DistributionFamily.NORMAL, std=0.5, unit="°C",
-                ),
-                StateVariable(
-                    name="rainfall_anomaly_pct", value=rainfall_anomaly,
-                    family=DistributionFamily.NORMAL, std=8.0, unit="%",
-                ),
-                StateVariable(
-                    name="wind_speed_kmh", value=_WIND_BASELINE_KMH,
-                    family=DistributionFamily.LOGNORMAL, std=0.25, unit="km/h",
-                ),
-                StateVariable(
-                    name="ignition_sources", value=ignition,
-                    family=DistributionFamily.POISSON, unit="count/day",
-                ),
-            ],
-        )
+        """Map the twin's current state onto the engine's ``WorldState`` (see
+        :func:`region_to_world_state`)."""
+        return region_to_world_state(self.twin_id, self._state)
 
     def _scenario_means(self, run: SimulationRun) -> dict[str, float]:
         return {o.scenario_id: o.risk.mean for o in run.outcomes}
