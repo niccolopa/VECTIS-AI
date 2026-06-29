@@ -34,11 +34,16 @@ from vectis.realtime.streams.broker import (
     RedisStreamBroker,
     get_broker,
 )
+from vectis.realtime.streams.consumer import EventConsumer, Processor
+from vectis.realtime.streams.producer import EventProducer
 
 __all__ = [
     "DEFAULT_TOPIC",
+    "EventConsumer",
+    "EventProducer",
     "MemoryBroker",
     "MessageBroker",
+    "Processor",
     "RedisStreamBroker",
     "get_broker",
 ]
