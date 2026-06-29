@@ -4,10 +4,13 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-29** · End of **Session 18** (Event Streaming Engine — the V3 nervous
-system: `MessageBroker` ABC with an in-process `MemoryBroker` default + a lazy `RedisStreamBroker`
-adapter; `EventProducer`/`EventConsumer` carrying `Data Event → Queue → Processor`; `GlobalEvent`
-hardened with `confidence`/`metadata`). **V2 shipped; V3 ingestion + streaming live.** (Session 17:
+Last updated: **2026-06-29** · End of **Session 19** (State Estimation Engine — the V3 "present":
+`WorldCellState` versioned per-cell state; `StateStore` ABC + `MemoryStateStore` with replayable
+version history; `StateUpdater.apply_observation` folding observations in via EMA, bumping
+version/timestamp). **V2 shipped; V3 ingestion + streaming + state estimation live.** (Session 18:
+Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker` default + a lazy
+`RedisStreamBroker` adapter; `EventProducer`/`EventConsumer` carrying `Data Event → Queue →
+Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
 
@@ -926,6 +929,98 @@ ingestion + 4 streaming); full backend suite green.
 - Wire `Producer → MemoryBroker → Consumer(Processor) → StateEstimator.update(cell)` end to end, so
   an ingested event continuously moves a cell's state — the full `Data Event → Queue → Processor →
   State Update` loop running on one node.
+---
+
+## Current Progress (Session 19 — State Estimation Engine — COMPLETE)
+
+### Goal
+Build the **"present" of VECTIS** — the consumer-side logic that turns the Session-18 event
+stream into a **continuously-updated, versioned world state**. Receive normalized observations,
+merge them into per-cell state, keep a replayable history, and version every transition so the
+system is auditable and can look back in time.
+
+### Current Progress: Session 19 (State Estimation Engine — COMPLETE)
+Built on the S16 foundation, no upstream interface changes. `realtime/state/` is now a working
+engine, not a blueprint. `realtime/` tests: **17 pass** (3 foundation + 5 ingestion + 4 streaming
++ 5 state); full backend suite green (124 pytest pass), ruff + mypy clean on the new modules.
+
+- **`realtime/state/models.py` — `WorldCellState`.** The concrete, domain-named cell state the
+  running engine carries: `temperature`, `humidity`, `drought_index`, `fire_risk` (each
+  `float | None` — `None` until a feed reports it, so a fresh cell is honest about what it hasn't
+  seen), an `extra` catch-all so an off-list canonical variable is never silently dropped, plus
+  versioning metadata: `version: int` (monotonic, +1 per observation) and `last_updated`. Named
+  `WorldCellState` to coexist with the S16 blueprint `base.CellState` (the generic mean/covariance
+  Kalman target) rather than overwrite it — both are exported from `state/__init__.py`.
+- **`realtime/state/store.py` — `StateStore` ABC + `MemoryStateStore`.** Three methods:
+  `get_state(cell_id)`, `save_state(cell_state)`, `get_history(cell_id, limit)`. The memory backend
+  keeps the latest state per cell plus a bounded **append-only** `deque(maxlen=history_limit)` of
+  superseded versions; `save_state` pushes the prior latest into history before replacing it;
+  `get_history` returns prior versions **newest-first**. Thread-safe (one lock) so it sits behind
+  the streaming consumer. A `ponytail:` stub marks where `RedisStateStore`/`PostgresStateStore` drop
+  in over the same three methods.
+- **`realtime/state/updater.py` — `StateUpdater`** (the concrete fulfilment of the S16
+  `StateEstimator` role). `apply_observation(observation: GlobalObservation)`: fetch current (or
+  create a fresh cell) → **EMA-merge** the observed variable into its field via a `VARIABLE_FIELDS`
+  map (covers connector canonical names like `temp_anomaly_c` + plain aliases; unknowns land in
+  `extra`) → bump `version` + `last_updated` → append source → `save_state`. The prior version is
+  preserved in history by the store. First reading of a variable sets it directly; `alpha=1.0`
+  makes the merge a direct overwrite (per the brief's "EMA or overwrite, pending Kalman").
+- **`tests/realtime/test_state.py` (5 tests).** Fresh state initializes empty/unversioned;
+  applying an observation updates the variable + increments the version (30 → EMA 35, v1 → v2);
+  an unknown variable is kept in `extra`; the store retrieves version history **newest-first** with
+  correct version numbers; history is **bounded** by `history_limit` (oldest age out).
+
+**Git commits (this session):**
+- `feat(state): add versioned concrete cell-state model`
+- `feat(state): add state store interface with in-memory history backend`
+- `feat(state): add state updater with observation merging and versioning`
+- `test(state): cover state init, observation merging, and version history`
+
+### What Worked
+- **(S19) A second concrete model beside the Kalman blueprint, not on top of it.** `base.CellState`
+  (mean/covariance) is the eventual filter target and is locked by the S16 foundations test;
+  `WorldCellState` is the working state the engine merges into today. Coexisting (distinct names,
+  both exported) honored "build on S16" with **zero churn** to the blueprint or its test — the same
+  reconcile-don't-rewrite lesson as S2/S4/S6.
+- **(S19) History lives in the store, versioning lives in the updater — clean split.** The updater
+  only bumps `version`/`last_updated` and hands a new immutable copy to `save_state`; the store
+  alone decides retention (bounded deque, newest-first). So look-back is a storage concern that a
+  Redis/Postgres backend can satisfy without touching the merge logic.
+- **(S19) `model_copy(deep=True)` before mutating.** The new version is a deep copy, so the prior
+  object the store pushed into history stays frozen — no aliasing bug where a later EMA update
+  silently rewrites a "historical" snapshot. This is what makes the audit trail trustworthy.
+- **(S19) EMA with a None-aware first step + `extra` catch-all.** First reading sets the value
+  (no blending a real number toward a fake zero baseline); off-list variables are retained instead
+  of dropped, so adding a new feed doesn't require an updater change to avoid data loss.
+
+### What Didn't Work / Gotchas
+- **(S19) Name clash: `models.CellState` vs `base.CellState`.** The first draft named the concrete
+  model `CellState`, which collides with the S16 blueprint that the foundations test imports from
+  the package (`.mean`/`.covariance`). Renamed to `WorldCellState` immediately — exporting two
+  different classes under one name from `state/__init__` would have been a footgun. Lesson: the S16
+  generic state and the S19 concrete state are *different representations*; give them different names.
+- **(S19) `StateUpdater` does not subclass `StateEstimator`.** The ABC's `update()` returns the
+  generic `base.CellState` and adds `predict`/`get`/`active_cells` (Kalman-shaped); forcing
+  inheritance would mean implementing covariance methods the EMA engine doesn't have yet. It
+  *fulfils the role* (documented) without the inheritance — the real Kalman estimator that satisfies
+  the ABC literally is deferred until covariance is tracked (`ponytail:` in `updater.py`).
+
+### Next Steps (Session 20 — pick up here)
+**Focus on Session 20 (Continuous Forecasting & V3 Demo):**
+- **Build the first concrete `Processor`** (`realtime/processors/`) to close the loop the S18/S19
+  handoffs both flag: consume `GlobalEvent`s off the broker (it's the `EventConsumer`'s `processor`
+  callback), validate at the trust boundary, deduplicate, assign a real grid `CellId` (replace
+  `naive_cell_id`'s 0.1° quantization), and call `StateUpdater.apply_observation`. Wire
+  `Producer → MemoryBroker → Consumer(Processor) → StateUpdater` end to end on one node.
+- **Implement `realtime/forecasting/`** → a continuous `Forecast` per cell: read the current
+  `WorldCellState` (and, once tracked, its uncertainty) and project it over a horizon, reusing the
+  V2 mixture machinery (`posterior_mixture_risk` + `scenario_confidence`). Derive `fire_risk` from
+  the state here rather than treating it as a raw observable.
+- **V3 demo** stitching ingestion → stream → processor → state → forecast for Liguria, in the
+  `demo_v2.py` mold (testable `run_demo` returning a result, stdlib tactical console).
+- **Promote to the Kalman `StateEstimator`** when per-variable uncertainty is needed: carry
+  covariance in `WorldCellState`, swap the EMA merge for a predict–correct gain, and have the
+  updater satisfy the S16 ABC literally.
 ---
 
 ## What Worked (decisions that succeeded — keep these)
