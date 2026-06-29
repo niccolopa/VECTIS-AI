@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "@/app/AppLayout";
 import { OverviewPage } from "@/pages/OverviewPage";
+import { DashboardPage } from "@/pages/DashboardPage";
 import { RiskIntelligencePage } from "@/pages/RiskIntelligencePage";
 import { MapsPage } from "@/pages/MapsPage";
 import { ReportsPage } from "@/pages/ReportsPage";
@@ -14,6 +15,7 @@ export function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route path="/" element={<OverviewPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/risk" element={<RiskIntelligencePage />} />
         <Route path="/maps" element={<MapsPage />} />
         <Route path="/reports" element={<ReportsPage />} />

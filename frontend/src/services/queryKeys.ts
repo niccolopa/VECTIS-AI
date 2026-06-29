@@ -7,4 +7,6 @@ export const qk = {
   analysis: (id: string) => ["analyses", id] as const,
   modelCard: (region: string) => ["models", region] as const,
   datasets: ["datasets"] as const,
+  twins: ["dashboard", "twins"] as const,
+  twin: (id: string) => ["dashboard", "twins", id] as const,
 };
