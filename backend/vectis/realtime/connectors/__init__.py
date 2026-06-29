@@ -14,5 +14,14 @@ network and no credentials — VECTIS's iron rule.
 from __future__ import annotations
 
 from vectis.realtime.connectors.base import BaseAPIConnector, ConnectorError
+from vectis.realtime.connectors.generic import GenericJSONConnector
+from vectis.realtime.connectors.satellite import SatelliteAPIConnector
+from vectis.realtime.connectors.weather import WeatherAPIConnector
 
-__all__ = ["BaseAPIConnector", "ConnectorError"]
+__all__ = [
+    "BaseAPIConnector",
+    "ConnectorError",
+    "GenericJSONConnector",
+    "SatelliteAPIConnector",
+    "WeatherAPIConnector",
+]
