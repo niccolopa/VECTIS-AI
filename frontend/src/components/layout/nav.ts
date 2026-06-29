@@ -2,6 +2,7 @@ import type { ComponentType, SVGProps } from "react";
 import {
   IconActivity,
   IconDataset,
+  IconLive,
   IconMap,
   IconOverview,
   IconReport,
@@ -18,6 +19,7 @@ export interface NavItem {
 // Sidebar navigation — the operational sections of the VECTIS console.
 export const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Overview", icon: IconOverview },
+  { to: "/live", label: "Live Intelligence", icon: IconLive },
   { to: "/dashboard", label: "Decision Intelligence", icon: IconActivity },
   { to: "/risk", label: "Risk Intelligence", icon: IconRisk },
   { to: "/maps", label: "Maps", icon: IconMap },

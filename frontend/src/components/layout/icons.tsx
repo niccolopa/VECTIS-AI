@@ -69,3 +69,10 @@ export const IconActivity = (p: IconProps) => (
     <path d="M3 12h4l3 8 4-16 3 8h4" />
   </svg>
 );
+
+export const IconLive = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="2.5" />
+    <path d="M7.8 7.8a6 6 0 000 8.5M16.2 16.3a6 6 0 000-8.5M4.9 4.9a10 10 0 000 14.2M19.1 19.1a10 10 0 000-14.2" />
+  </svg>
+);
