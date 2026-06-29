@@ -1,7 +1,7 @@
 # Frontend — VECTIS Decision Intelligence Console
 
-The frontend is an **enterprise operational-intelligence console** (Palantir-style:
-information-dense, dark, keyboard-friendly) for the climate-risk vertical. It consumes the
+The frontend is an **enterprise operational-intelligence console** (information-dense,
+dark, keyboard-friendly) for the climate-risk vertical. It consumes the
 real VECTIS backend API and is structured so new verticals and views slot in without
 rework.
 

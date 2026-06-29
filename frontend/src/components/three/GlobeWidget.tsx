@@ -3,7 +3,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 
-// Tactical "Matrix x Gotham" green wireframe globe. Plots the Liguria region and
+// Tactical green wireframe globe. Plots the Liguria region and
 // its provinces as glowing nodes on a slowly spinning sphere. Interactive: drag to
 // orbit, scroll to zoom (OrbitControls). Pure visual widget — coordinates are the
 // real province centroids so it reads as "our Liguria data", not decoration.

@@ -170,7 +170,7 @@ make up          # db (PostGIS) + backend + frontend
 
 ## The V2 Dashboard
 
-A dark, dense, tactical console (Matrix × Palantir) that consumes the real engine:
+A dark, dense, enterprise-grade tactical console that consumes the real engine:
 
 - **Scenario Explorer** — each branch (Baseline · Hotter & Drier · Extreme Wind) as a
   **box-and-whisker** over its full outcome distribution (p05/p50/p95), not a single number.

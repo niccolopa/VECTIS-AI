@@ -36,7 +36,7 @@ from vectis.streaming.updater import RealTimeUpdater
 
 WIDTH = 76
 
-# ── ANSI theme (VECTIS neon / Matrix-Gotham) ─────────────────────────────────
+# ── ANSI theme (VECTIS neon / enterprise tactical) ───────────────────────────
 _RESET = "\033[0m"
 _C = {
     "green": "\033[38;5;46m",

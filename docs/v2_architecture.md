@@ -50,7 +50,7 @@ flowchart TD
         CRITIC --> REPORT["DecisionIntelligenceReport<br/><i>prose only — numbers copied in</i>"]
     end
 
-    subgraph UI["🖥️ React Dashboard · Matrix × Palantir"]
+    subgraph UI["🖥️ React Dashboard · Enterprise Tactical"]
         EXPLORER["Scenario Explorer<br/>box-and-whisker"]
         TIMELINE["Probability Timeline<br/>risk × confidence"]
         WHATIF["What-If Simulator"]

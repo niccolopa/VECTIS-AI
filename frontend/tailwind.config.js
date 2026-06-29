@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-// "Matrix meets Palantir Gotham" tactical design system. Pure-black, monospaced,
+// Enterprise tactical design system. Pure-black, monospaced,
 // neon-green/cyan. Tokens stay few and semantic so the whole console restyles from
 // here (components reference bg/surface/text/accent/border, not raw hexes).
 export default {

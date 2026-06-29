@@ -167,7 +167,7 @@ not rebuilt. (A prior S4 run had already authored the bulk of the tree; this ses
 it green, fixed the failing tests, and completed the documentation**.)
 
 **Frontend status — all green:** `tsc --noEmit` clean, `eslint --max-warnings 0` clean,
-**7 Vitest tests pass** (4 files), `vite build` succeeds. Multi-page SPA, Palantir-style dense
+**7 Vitest tests pass** (4 files), `vite build` succeeds. Multi-page SPA, enterprise-grade dense
 dark UI, consuming the real backend API.
 
 **Architecture** (`frontend/src/`, one-way deps `pages → features → components → ui`):
@@ -267,7 +267,7 @@ TanStack Query data layer, MapLibre map, real backend integrations) is unchanged
 
 ## Current Progress (Session 6 — COMPLETE)
 
-Focus: **frontend visual redesign — "Matrix meets Palantir Gotham 3D" tactical aesthetic.**
+Focus: **frontend visual redesign — enterprise-grade tactical 3D aesthetic.**
 No backend or data-layer changes; the S4/S5 architecture (8 pages, TanStack Query, MapLibre,
 real backend integrations) is intact and still green.
 
@@ -311,7 +311,7 @@ province coordinates; risk/analysis data wiring into the 3D nodes is left as a n
 ## Current Progress (V2 Foundation — COMPLETE)
 
 > **Numbering reconciliation:** the V2 brief is labeled "Session 6," but this doc already used
-> *Session 6* for the Matrix/Gotham frontend redesign (it matches the latest commit). To keep the
+> *Session 6* for the tactical frontend redesign (it matches the latest commit). To keep the
 > history monotonic this block is the **V2 foundation** session — chronologically after the redesign.
 
 Focus: **build the architectural skeleton + theoretical foundation for the V2 Simulation Engine.**
@@ -353,7 +353,7 @@ brief said create `backend/app/simulation/`. There is no `backend/app/`; the pac
 `simulation/scenarios/base.py`, `simulation/engine/monte_carlo.py`,
 `simulation/probability/bayesian.py`, `simulation/states/base.py`. **Changed:** `HANDOFF.md`.
 
-**Quality bar ("would a Palantir senior approve this for a high-frequency sim engine?"):** the math
+**Quality bar ("would a senior engineer approve this for a high-frequency sim engine?"):** the math
 boundary is structural — `simulation/` cannot reach the LLM layer (no agents import), so calculation
 *can't* be delegated to an LLM by construction; schemas force uncertainty + normalized priors;
 configs carry an RNG seed so reproducibility is a first-class contract; the engine ABC mandates

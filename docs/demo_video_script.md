@@ -3,10 +3,10 @@
 A shot-by-shot storyboard for recording a ~2:00 showcase. Goal: in two minutes a
 viewer understands that VECTIS is a **real-time probabilistic decision-intelligence
 platform** with serious engineering underneath (Monte Carlo, Bayesian inference, a
-Math Firewall) and a tactical "Matrix × Palantir" interface.
+Math Firewall) and a state-of-the-art tactical command interface.
 
 **Recording setup**
-- Dark terminal, large monospace font (the green-on-black reads as "Matrix").
+- Dark terminal, large monospace font (the green-on-black tactical look).
 - Browser at 1920×1080, OS dark mode, no bookmarks bar.
 - Two prep terminals running before you hit record:
   - `make api` (backend on :8000)
