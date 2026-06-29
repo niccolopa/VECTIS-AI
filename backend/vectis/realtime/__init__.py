@@ -27,9 +27,22 @@ Subpackages:
 
 Design docs: ``docs/v3_realtime_architecture.md``, ``docs/v3_state_management.md``.
 
-Status: **blueprint** (Session 16). Interfaces and schemas only — the concrete
-stream processors, Kalman filters, and Kafka/WebSocket transports land in later
-sessions. The Math Firewall still holds: nothing here lets an LLM touch a number.
+Status: **live** (Session 22). The :class:`~vectis.realtime.pipeline.ContinuousPipeline`
+now unites every layer above into one continuous flow — Live Data → Events → Kalman →
+Bayesian → Monte Carlo → Decision Report. The Math Firewall still holds: nothing here lets
+an LLM touch a number.
 """
 
 from __future__ import annotations
+
+from vectis.realtime.pipeline import (
+    ContinuousPipeline,
+    ForecastResult,
+    build_default_pipeline,
+)
+
+__all__ = [
+    "ContinuousPipeline",
+    "ForecastResult",
+    "build_default_pipeline",
+]
