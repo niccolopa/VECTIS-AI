@@ -23,19 +23,21 @@ import argparse
 import asyncio
 import sys
 from dataclasses import dataclass, field
-from typing import Any, TextIO
+from typing import TextIO
 
 from vectis.agents.board.service import SimulationBoardService
 from vectis.agents.llm.base import LLMProvider
 from vectis.core.schemas import RiskBand
-from vectis.realtime.connectors.satellite import SatelliteAPIConnector
-from vectis.realtime.connectors.weather import WeatherAPIConnector, WeatherEvent
-from vectis.realtime.events.base import GlobalEvent, naive_cell_id
+from vectis.realtime.events.base import naive_cell_id
 from vectis.realtime.forecasting.bayesian.priors import ScenarioPriors
 from vectis.realtime.forecasting.bayesian.updater import ContinuousBayesianUpdater
 from vectis.realtime.forecasting.kalman.state_model import KalmanCellState
 from vectis.realtime.forecasting.kalman.updater import KalmanStateUpdater
 from vectis.realtime.ingestion.manager import IngestionManager
+from vectis.realtime.live_stream import (
+    EscalatingSatelliteConnector,
+    RampingWeatherConnector,
+)
 from vectis.realtime.pipeline import (
     _DRIVER_LABELS,
     ContinuousPipeline,
@@ -57,64 +59,6 @@ from vectis.simulation.schemas import SimulationConfig
 
 WIDTH = 76
 CELL_LABEL = "Liguria_01"  # friendly name for the grid cell the Liguria feeds map to
-
-
-# ── ramping mock feeds — the engine of the "live" feeling ─────────────────────
-class RampingWeatherConnector(WeatherAPIConnector):
-    """Offline weather feed whose readings drift hotter & drier on every poll.
-
-    Each ``fetch`` advances a tick: temperature climbs, humidity falls, wind rises,
-    and a drought index deepens — a plausible escalating fire day. Drought has no
-    slot in the base weather payload, so we emit it as an extra normalized event.
-    """
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._tick = 0
-
-    def fetch(self) -> dict[str, Any]:
-        t = self._tick
-        self._tick += 1
-        return {
-            "temperature": 24.0 + 2.1 * t,            # heat anomaly building
-            "humidity": max(8.0, 55.0 - 4.5 * t),     # air drying out
-            "wind": 12.0 + 2.5 * t,                   # wind freshening
-            "drought": min(0.95, 0.30 + 0.05 * t),    # drought index rising
-        }
-
-    def normalize(self, raw: dict[str, Any]) -> list[GlobalEvent]:
-        events = super().normalize(raw)  # temp_anomaly_c / humidity_pct / wind_speed_kmh
-        if raw.get("drought") is not None:
-            events.append(
-                WeatherEvent(
-                    source=self.source,
-                    location=self.location,
-                    payload={"variable": "drought_index", "value": float(raw["drought"])},
-                )
-            )
-        return events
-
-
-class EscalatingSatelliteConnector(SatelliteAPIConnector):
-    """Offline FIRMS-style feed whose fire-radiative-power grows each poll."""
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._tick = 0
-
-    def fetch(self) -> dict[str, Any]:
-        t = self._tick
-        self._tick += 1
-        return {
-            "detections": [
-                {
-                    "latitude": 44.41,
-                    "longitude": 8.93,
-                    "frp": 5.0 + 7.0 * t,
-                    "confidence": min(95, 60 + 5 * t),
-                }
-            ]
-        }
 
 
 @dataclass

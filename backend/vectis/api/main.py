@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
         dashboard,
         health,
         intelligence,
+        live,
         models,
         regions,
         stream,
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(stream.router)
     app.include_router(intelligence.router)
     app.include_router(dashboard.router)
+    app.include_router(live.router)
     return app
 
 
