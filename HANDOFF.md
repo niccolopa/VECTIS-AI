@@ -4,11 +4,12 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-29** · End of **Session 17** (API Data Ingestion Layer — resilient
-`BaseAPIConnector` with retry/backoff; weather/satellite/generic concrete connectors;
-`IngestionManager` fanning connectors into one `GlobalEvent` stream). **V2 shipped; V3 ingestion
-layer live.** (Session 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator`
-interfaces, docs sanitized of external brand/pop-culture references.)
+Last updated: **2026-06-29** · End of **Session 18** (Event Streaming Engine — the V3 nervous
+system: `MessageBroker` ABC with an in-process `MemoryBroker` default + a lazy `RedisStreamBroker`
+adapter; `EventProducer`/`EventConsumer` carrying `Data Event → Queue → Processor`; `GlobalEvent`
+hardened with `confidence`/`metadata`). **V2 shipped; V3 ingestion + streaming live.** (Session 17:
+resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
+16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
 
 > **Session history:** S1 — full foundation + working vertical slice (agents/ML/API/
 > frontend). S2 — hardened the backend/data **foundation** (DB session layer, Alembic
@@ -842,6 +843,89 @@ foundation, no interface changes. `realtime/` tests: 8 pass (3 foundation + 5 in
   predict-correct updates.
 - Replace `IngestionManager`'s synchronous poll loop with async fan-in / a real stream backend
   (asyncio gather or Kafka producer) — the connector contract stays unchanged.
+---
+
+## Current Progress (Session 18 — Event Streaming Engine — COMPLETE)
+
+**Goal:** Build VECTIS's central nervous system — the event streaming broker that routes data from
+the Session-17 `IngestionManager` to downstream processors. The flow `Data Event → Queue →
+Processor → State Update`, designed "clone & run" friendly: the whole pipeline runs locally on pure
+`asyncio`, while a DevOps engineer can swap in Redis Streams for production via one env var.
+
+**Current Progress: Session 18 (Event Streaming Engine — COMPLETE).** Built on the S16/S17
+foundation, no interface changes upstream. `realtime/` tests: **12 pass** (3 foundation + 5
+ingestion + 4 streaming); full backend suite green.
+
+- **Event schema hardening — `realtime/events/base.py`.** `GlobalEvent` now strictly carries
+  `confidence: float` (validated `0.0–1.0`, the raw source trust) and a free-form `metadata: dict`
+  for traceability, alongside the existing `source`, `location`, `observed_at`/`ingested_at`
+  (timestamp), and `payload`. Both default (1.0 / empty) so the S17 connectors keep working; the
+  range is enforced. The satellite connector now routes the real FIRMS detection confidence
+  (0–100 → 0–1) into the field instead of folding it into `std` alone.
+- **Broker architecture — `realtime/streams/broker.py`.** Evaluated Kafka (too heavy for a local
+  checkout), RabbitMQ (push/task-queue model, hard dep), and **Redis Streams** (log-shaped, light,
+  at-least-once) — see the module docstring. The design is an abstract **`MessageBroker`** ABC
+  (`publish`/`subscribe`/`ack`/`close`) with two backends: **`MemoryBroker`** (one `asyncio.Queue`
+  per topic, zero deps, the default) and **`RedisStreamBroker`** (a `redis.asyncio` adapter over
+  `XADD`/`XREADGROUP`/`XACK` consumer groups; `redis` imported lazily, opt-in `redis` extra).
+  **`get_broker()`** resolves the backend from `VECTIS_BROKER` (`memory`|`redis`) + `VECTIS_REDIS_URL`.
+- **Producer & Consumer — `realtime/streams/{producer,consumer}.py`.** `EventProducer` forwards the
+  `IngestionManager`'s merged `GlobalEvent` stream onto a broker topic, polling off the event loop
+  via `asyncio.to_thread` (a slow feed never blocks the loop). `EventConsumer` drains a topic into a
+  sync-or-async `processor` callback and **acks only on success** — a callback that raises is logged
+  and skipped (so under Redis the event is redelivered, not lost) without killing the loop. This is
+  the seam the S19 `StateEstimator` plugs into.
+- **Tests — `tests/realtime/test_streams.py` (4 tests).** `MemoryBroker` round-trips events in
+  order; a producer pushing **100** ingested events results in a consumer processing **exactly 100**;
+  a failing processor is logged/skipped (`processed==4, failed==1` over 5) without crashing; an async
+  processor callback is awaited. Async driven via `asyncio.run` inside sync tests (the S9 pattern —
+  no asyncio plugin/dep).
+
+**Git commits (this session):**
+- `feat(events): enforce confidence and metadata fields in event schemas`
+- `feat(streams): implement abstract message broker and memory queue`
+- `feat(streams): add producer and consumer for the event pipeline`
+- `test(streams): cover broker enqueue/dequeue and producer-consumer flow`
+
+### What Worked
+- **(S18) One abstract broker, two backends, swap via env var.** Callers (producer/consumer) depend
+  only on `MessageBroker`; `get_broker()` reads `VECTIS_BROKER`. Local dev gets a dependency-free
+  `asyncio.Queue`; production gets Redis Streams with no code change — exactly the proportionality
+  the quality-check demanded.
+- **(S18) Ack-on-success, not ack-on-receipt.** The consumer acks only after the processor returns,
+  so a failing event isn't silently dropped — under Redis's consumer-group PEL it's redelivered. The
+  ack handle (Redis stream id) rides in the new `metadata` dict, so no wrapper type was needed and
+  `MemoryBroker.ack` stays a clean no-op.
+- **(S18) `asyncio.to_thread` for the synchronous `IngestionManager`.** The S17 manager stays
+  unchanged (sync, blocking HTTP); the producer wraps its `poll_once` off the loop, so the streaming
+  layer is async without rewriting ingestion — the same off-loop pattern S9 used for CPU-bound math.
+- **(S18) Hardening `GlobalEvent` with safe defaults.** Adding `confidence`/`metadata` with defaults
+  enforces the contract (range-validated) without breaking the three S17 connectors or their tests —
+  reconcile, don't churn.
+
+### What Didn't Work / Gotchas
+- **(S18) Redis deserialization loses the `GlobalEvent` subclass.** Over the wire an event rebuilds
+  as the *base* `GlobalEvent`, so its `to_observation` hook (defined on subclasses) is gone. The
+  payload/variable survive; re-typing belongs in the processor stage (S18 design note, `ponytail:`
+  in `broker.py`) where normalization lives anyway — `MemoryBroker` keeps the live object in-process,
+  so this only bites the Redis path.
+- **(S18) An early `MemoryBroker` draft pulled in `anyio`.** Walked back to plain `asyncio.Queue`
+  with `task_done()`/`join()` — no new dependency, and `join()` gives tests a clean "all consumed"
+  barrier. Ruff also caught a leftover unused `asyncio` import in `consumer.py`.
+- **(S18) `mypy` vs `python -m mypy`.** A bare `mypy <file>` exited 1 with no output in this shell;
+  `python -m mypy` reported "Success" correctly. Use `python -m mypy` for the streams package.
+
+### Next Steps (Session 19 — pick up here)
+**Focus on Session 19 (Continuous State Estimation):**
+- Implement the concrete `StateEstimator` (S16 ABC, `realtime/state/base.py`) — continuous
+  predict-correct (Kalman / continuous Bayesian) updating of per-cell `CellState`.
+- Build the first concrete **`Processor`** (`realtime/processors/`): consume `GlobalEvent`s off the
+  broker (it's the `EventConsumer`'s `processor` callback), **validate** at the trust boundary,
+  **deduplicate**, assign a real grid `CellId` (replace `naive_cell_id`'s 0.1° quantization with
+  H3/raster tiling), and emit `GlobalObservation`s.
+- Wire `Producer → MemoryBroker → Consumer(Processor) → StateEstimator.update(cell)` end to end, so
+  an ingested event continuously moves a cell's state — the full `Data Event → Queue → Processor →
+  State Update` loop running on one node.
 ---
 
 ## What Worked (decisions that succeeded — keep these)
