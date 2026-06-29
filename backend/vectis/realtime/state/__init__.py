@@ -31,5 +31,6 @@ Status: **blueprint** (Session 16) — :class:`StateEstimator` ABC defined in
 from __future__ import annotations
 
 from vectis.realtime.state.base import CellState, GlobalState, StateEstimator
+from vectis.realtime.state.models import WorldCellState
 
-__all__ = ["CellState", "GlobalState", "StateEstimator"]
+__all__ = ["CellState", "GlobalState", "StateEstimator", "WorldCellState"]
