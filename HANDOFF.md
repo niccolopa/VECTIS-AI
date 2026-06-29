@@ -4,9 +4,9 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-27** · End of **Session 13** (Scale & Performance — 1M-scenario Monte
-Carlo, distributed (Ray/Dask) abstraction + local stub, TTL+LRU caching, honest stress-test
-verdict; 101 backend tests green).
+Last updated: **2026-06-29** · End of **Session 15** (VECTIS V2 Release — dashboard wired into
+the router + nav, V2 architecture diagrams, demo video script, README overhaul with benchmarks +
+V3 roadmap; 107 backend tests green, frontend typecheck/lint/build/tests all green). **V2 is done.**
 
 > **Session history:** S1 — full foundation + working vertical slice (agents/ML/API/
 > frontend). S2 — hardened the backend/data **foundation** (DB session layer, Alembic
@@ -23,9 +23,8 @@ verdict; 101 backend tests green).
 
 ## Goal
 
-Build **VECTIS**: a production-grade, open-source **AI decision-intelligence platform** that
-turns complex real-world data into **explainable, actionable** intelligence. First vertical:
-**Climate (wildfire) Risk Intelligence**, demoed on **Liguria, Italy**.
+Build **VECTIS**: a production-grade, open-source **Real-Time Probabilistic Decision Intelligence Platform** that turns complex real-world data into **explainable, actionable** forecasting. 
+First vertical: **Climate (wildfire) Risk Intelligence**, demoed on **Liguria, Italy**.
 
 The project is now in two layers:
 
@@ -697,10 +696,78 @@ per scenario array, transient, not retained). And **yes, multiprocessing picklin
 makes it slower than single-thread** for this cheap workload (~12×) — documented explicitly in the
 stress-test console output and the docs, not hidden.
 
+
+## Current Progress (Session 14 — VECTIS V2 Productization — COMPLETE)
+
+Focus: **V2 Frontend Dashboard and API integration.** Bridging the 1M-scenario Monte Carlo and Bayesian math to an enterprise-grade React/TS user interface. 
+
+**What was built (API tests green: 107 pytest pass — was 101):**
+- **`api/routers/dashboard.py` & `services/dashboard_service.py`:** `GET /api/v1/dashboard/twins/{id}` (returns current state, RiskState, per-scenario distributions, and AI report) and `POST /api/v1/dashboard/simulate/what-if` (sync Monte Carlo run via S13 cache).
+- **`src/types/v2.ts`:** Strict TypeScript interfaces mirroring backend Pydantic models (`RiskState`, `ProbabilityDistribution`, `DecisionIntelligenceReport`).
+- **`src/hooks/useTwinStream.ts`:** WebSocket hook with auto-reconnect and 3s backoff to accumulate `StateChange` points into a timeline.
+- **React Feature Components (`src/features/dashboard/`):**
+  - `ScenarioExplorer`: Box-and-whisker distributions (p05/p50/p95).
+  - `AiIntelligenceBrief`: Structured rendering of the LangGraph AI report.
+  - `WhatIfSimulator`: Manual sliders mapping to `RegionState`, leveraging the cache for instant "what-if" re-runs.
+  - `ProbabilityTimeline`: Recharts dual-axis line chart tracking risk and confidence over time.
+- **`src/pages/DashboardPage.tsx`:** Composes the V2 features into the command center view.
+---
+
+## Current Progress (Session 15 — VECTIS V2 Release — COMPLETE)
+
+Focus: **finish the S14 wiring and ship a top-tier open-source release.** No new product
+surface — finalize, document, and package. Everything below is committed (atomic, humanized
+commits) and all gates are green.
+
+**1. Frontend finalization (closed the S14 gap).** The dashboard route was never wired before the
+API dropped. Added `DashboardPage` to the router (`src/app/App.tsx`, `/dashboard`) and a sidebar
+entry **"Decision Intelligence"** with `IconActivity` (`src/components/layout/nav.ts`). Fixed one
+unused-import typecheck error in `useTwinStream.ts`. **`npm run typecheck`, `npm run lint` (0
+warnings), `npm run build`, and `npm test` (7 tests) all pass.** → commit `feat(ui): wire V2
+decision-intelligence dashboard into the React app` (the S14 backend + frontend foundation were
+also committed here as two atomic commits, since S14 ended before committing).
+
+**2. Architecture diagrams.** New `docs/v2_architecture.md`: a mermaid **flowchart** of the full
+pipeline (external data → updater → twin → Bayesian → Monte Carlo + cache → board → dashboard)
+with the Math Firewall called out by color, a **sequence diagram** of an observation arriving
+(202 → background → belief shift → conditional re-run → WS push), and a component-to-code table.
+→ commit `docs: add V2 system architecture with mermaid flow and sequence diagrams`.
+
+**3. Demo video script.** New `docs/demo_video_script.md`: a 2-minute shot-by-shot storyboard for
+the maintainer to record (terminal `demo_v2` → `make stress` → dashboard → Scenario Explorer →
+What-If → AI brief → live `curl` ingest → timeline ticks). Verified the ingest `curl` payload
+against the real `WeatherAlert` schema (`variable`/`value`/`severity`, not invented fields).
+→ commit `docs: add 2-minute showcase video script for maintainers`.
+
+**4. README overhaul.** Reframed the header as **"Real-Time Probabilistic Decision Intelligence
+Platform"**; added the two-layer story, a capability table linking the engineering to code, a
+**Performance & Scale** section with the S13 benchmark (1M scenarios ~0.8 s single-thread + the
+honest multiprocessing caveat), the V2 dashboard section, and a concrete **V3 roadmap** (Kafka +
+NASA FIRMS, persistence, RL for actions, multi-twin Climate × Finance, horizontal scale). Added
+test/scale badges. → commit `docs: overhaul README around V2 with benchmarks, architecture, and
+V3 roadmap`.
+
+**Verification snapshot:** backend `pytest` 107 passed; frontend `tsc --noEmit` clean,
+`eslint --max-warnings 0` clean, `vite build` succeeds (the >500 kB chunk warning is pre-existing,
+from three.js/maplibre, not V2 code), `vitest` 7 passed.
+
 ---
 
 ## What Worked (decisions that succeeded — keep these)
 
+- **(S15) Committing per milestone, atomically and humanized.** Four+ small commits (`feat(ui)`,
+  `docs:` ×3) each tell one story and pass their own gate — far easier to review/revert than an
+  end-of-session megacommit. The S14 work that was left uncommitted slotted cleanly into two
+  atomic commits (backend API, then frontend+wiring).
+- **(S15) Documentation as a product surface, not an afterthought.** A mermaid architecture diagram
+  + a benchmark table + a real V3 roadmap is what makes a repo *read* as top-tier on first landing.
+  Linking every capability claim to the file that implements it is what makes it *credible*.
+- **(S15) Verifying doc commands against the schema.** The demo-script `curl` was written, then
+  checked against `WeatherAlert` — caught invented fields before they shipped. Docs that don't run
+  are bugs.
+
+- **(S14) Mapping deterministic Twin state to `WorldState`.** Allowed for a robust, highly-cached `what-if` simulator endpoint without having to  rewrite or fork any of the core Monte Carlo engine logic.
+- **(S14) Exposing statistical bounds (p05/p50/p95) to the frontend.** Returning full distributions instead of just a mean allowed the UI to draw true enterprise confidence-fan/whisker charts natively with Recharts.
 - **(S13) One pool per run, not one per scenario.** Building all scenarios' chunks up front and
   dispatching once removed a 3× process-spawn tax (40 s → ~10–15 s for the 1M parallel path) and
   maps cleanly onto a single cluster `gather`. Math unchanged (same chunks, same order).
@@ -891,7 +958,13 @@ stress-test console output and the docs, not hidden.
 ---
 
 ## What Didn't Work / Gotchas (so you don't repeat them)
-
+- **(S14→S15) API overload dropped the final routing — now RESOLVED.** S14 ended before the
+  dashboard route was wired (the API dropped mid-edit). S15 completed it: route + nav added,
+  typecheck/lint/build/tests all green. Lesson: leaving uncommitted work across an interruption is
+  risky — commit each milestone as you finish it (the S15 commit policy now does exactly this).
+- **(S15) `tsc --noEmit` fails on unused imports.** The new `useTwinStream.ts` imported `useRef`
+  without using it → TS6133. `npm run typecheck` is the fast pre-commit gate; run it before
+  assuming the frontend is stable (build is slower and would have caught it later).
 - **TS project references + `noEmit`** → `tsc -b` error TS6310. Fixed by giving
   `tsconfig.node.json` `composite: true` with an `outDir`/`tsBuildInfoFile` (no `noEmit`).
 - **Vite needs `VITE_API_BASE_URL` at *build* time** (browser calls the API directly).
@@ -985,35 +1058,54 @@ stress-test console output and the docs, not hidden.
   `C408` rejects `dict(...)` literals, `I001` import ordering (stdlib `concurrent.futures` before
   third-party `numpy`). All trivially fixed; mypy is scoped to `vectis/` only (tests untyped is fine).
 
-## Next Steps (Session 14 — pick up here)
+## Next Steps — Handover to the community & V3 vision
 
-**Done so far (do not redo):** S1 vertical slice; S2 DB session layer + migrations + readiness;
-S3 LangGraph engine + two-engine interface + extended ML metrics + auditable model selection;
-S4 the full enterprise frontend console; **S5 OSS/production-readiness hardening** (frontend
-tests in CI, Docker healthchecks + reproducible `npm ci`, `.editorconfig`, repo-structure docs,
-security review); **S6 the "Matrix x Palantir Gotham" tactical redesign**; **V2 Foundation**
-(the `simulation/` skeleton — schemas + ABC interfaces + docs); **S7 the Monte Carlo engine**
-(`distributions`/`sampler`/`runner`/`models/wildfire`/`scenarios/generator` — vectorized, seeded,
-reproducible, optional process-pool parallelism; 100k in ~70 ms; 8 tests); **S8 the Bayesian
-update + Confidence Score** (`probability/bayesian` `GaussianBayesianUpdater`, `probability/
-uncertainty`, `probability/calibration` blueprint; discrete exact-evidence Bayes in log-space;
-10 tests); **S9 the Real-Time Intelligence Layer** (`streaming/` package: `events`/`updater`/
-`broadcaster` + `api/routers/stream.py`; 202-ingest → BackgroundTask → debounce → Bayesian update
-→ conditional MC re-run → WebSocket broadcast; 7 tests); **S10 the Digital Twin Foundation**
-(`digital_twin/` package: `DigitalTwin` ABC + `RegionTwin` + `ClimateTransition` + `StateManager`;
-deterministic transitions feed the probability engine; streaming refactored to route events to
-twins; 7 tests); **S11 the LLM Simulation Agents** (`agents/board/` package: LangGraph
-`Analyst → Scenario → Debate → Critic` board + `DecisionIntelligenceReport` + Math Firewall +
-`POST /api/v1/intelligence/reports`; 9 tests); **S12 the first end-to-end demo** (`scripts/
-demo_v2.py` + `scripts/run_demo_liguria.py` + `make demo-v2`: full pipeline, 100k MC, tactical
-stdlib console; 4 integration tests); **S13 Scale & Performance** (`engine/distributed.py` Ray/Dask
-abstraction + `LocalClusterStub`, `caching.py` TTL+LRU memoizer, one-pool runner refactor,
-`n_workers=0` auto, `scripts/stress_test.py` 1M run with honest verdict; 8 tests). Note: the **NASA
-FIRMS / live-data work was never done** — top backend priority, feeds State Estimation *and* the
-streaming/twin layers (both still ingest **synthetic** events). The **`states/base.py`
-`StateEstimator` and `forecasting/Forecast` impls are still ABC-only**, the twin + belief state is
-**in-memory only (not persisted)**, the board/`RealTimeUpdater` are **synchronous** (no async LLM
-path), and **`docker compose up --build` has still never been run here** (item 0).
+**V2 is complete and released.** The full arc S1→S15 is done: V1 reactive vertical, then the V2
+probabilistic engine (Monte Carlo, Bayesian update, real-time streaming, digital twin, LLM board),
+scaled to 1M scenarios, productized into a dashboard, and shipped with architecture docs, a demo
+script, and an overhauled README. 107 backend tests + the full frontend gate are green. There is
+no "pick up the unfinished thing" — the next engineer is building **V3**, not finishing V2.
+
+### Hand the repo to the community
+- **Record the showcase video** from `docs/demo_video_script.md` and drop the captures under
+  `docs/assets/` (the README + frontend docs have screenshot placeholders waiting).
+- **Tag a release** (`v2.0.0`) and write release notes from the S6–S15 history below.
+- **Open "good first issue"s** from the V3 list so contributors have an on-ramp. `CONTRIBUTING.md`,
+  `CODE_OF_CONDUCT.md`, and `SECURITY.md` already exist.
+- **Run `docker compose up --build` once on a Docker host** — still never validated here (item 0,
+  carried since S4/S5). It's the last unchecked box on "clone → run".
+
+### The V3 vision — from one twin to a living intelligence network
+1. **Live data streams (the big one).** NASA **FIRMS** active-fire ingestion, then ERA5/Copernicus,
+   delivered over **Apache Kafka** so twins react to the real world, not synthetic events. The
+   transport seam is ready: `RealTimeUpdater.process()` / `twin.update_from_observation()` stay
+   unchanged; only the ingest glue (BackgroundTasks → Kafka consumer) changes.
+2. **Persistence & belief history.** ORM-backed `StateManager` + twin/posterior snapshots over time
+   (reuse the S2 `database/` layer), so risk trajectories survive restarts and are auditable.
+3. **Reinforcement learning for suggested actions.** Go beyond *describing* risk to *recommending*
+   interventions (resource pre-positioning) and learning from resolved outcomes — feeds the
+   blueprint `probability/calibration.py` (Brier score) as the reward signal.
+4. **Multi-twin interaction.** Twins that influence each other across domains — **Climate × Finance**
+   (wildfire risk → insurance/commodity exposure) — composed through the existing `StateManager`.
+5. **Horizontal scale.** Promote the S13 distributed *stub* to real **Ray/Dask**; move
+   `StateManager`/broadcaster/cache to **Redis** for many regions concurrently.
+
+The carry-over backlog below (forecasting impl, live connectors, persistence, async board, real
+LLM provider, calibration) is the concrete task-level feed into that V3 vision — still valid.
+
+### How to get oriented fast
+```bash
+# Backend (offline, no keys)
+cd backend && python -m venv .venv && .venv/Scripts/activate
+pip install -e ".[dev,langgraph]"
+pytest                             # 107 tests, all green
+python -m vectis.scripts.demo_v2   # watch the full V2 pipeline run (offline, ~1s)
+python scripts/stress_test.py      # 1M-scenario Monte Carlo + honest perf verdict
+
+# Frontend
+cd frontend && npm install && npm run dev            # http://localhost:5173 → "Decision Intelligence"
+npm run typecheck && npm run lint && npm run build    # all green
+```
 
 ### Session 14 PRIMARY: VECTIS V2 Productization
 
