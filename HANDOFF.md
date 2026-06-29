@@ -4,7 +4,14 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-30** · End of **Session 21** (Bayesian Continuous Update Engine —
+Last updated: **2026-06-30** · End of **Session 22** (Real-Time Forecasting Pipeline —
+`realtime/pipeline.py`: `ContinuousPipeline` unites every V3 layer into one continuous flow —
+`Live Data → Events → Kalman → Bayesian → Monte Carlo (V2) → Decision Report (V2 board)`. A
+**fast path** (Kalman+Bayesian, sub-ms, in the consumer) is decoupled from a **slow path**
+(Monte Carlo + LLM board) that runs off the event loop via `asyncio.to_thread`, with per-cell
+coalescing so a burst collapses to one forecast of the latest state — ingestion never blocks on
+simulation. `build_default_pipeline()` wires the offline Liguria defaults; 139 tests pass.) ·
+Session 21 (Bayesian Continuous Update Engine —
 `realtime/forecasting/bayesian/`: `ScenarioProfile`/`log_likelihood` scoring a Kalman `(mean,
 variance)` state against scenario archetypes in log-space; `ScenarioPriors` carrying a categorical
 belief that relaxes toward a positive baseline so it never locks at 0/100; `ContinuousBayesianUpdater.
@@ -1208,6 +1215,87 @@ found in 4 source files"); `python -m vectis.realtime.forecasting.bayesian.updat
 - **Calibrate the tuning knobs against real data** — scenario `expected`/`spread`, `relax_rate`, and
   the Kalman `process_noise_rate` are all illustrative (`ponytail:`); fit them to real climate
   variable distributions and sensor σ once a live feed is wired.
+---
+
+## Current Progress (Session 22 — Real-Time Forecasting Pipeline — COMPLETE)
+
+### Goal
+Unite every isolated organ built since Session 16 into one continuous, living flow:
+`Live Data → Events → State Estimation (Kalman) → Bayesian Update → Monte Carlo (reused V2
+engine) → New Probabilities → LangGraph Decision Report (reused V2 board)`. Sessions 16–21
+each shipped one stage; Session 22 is the nervous system that wires them together and proves a
+single event traverses the whole chain.
+
+### Current Progress: Session 22 (Real-Time Forecasting Pipeline — COMPLETE)
+New module **`backend/vectis/realtime/pipeline.py`** + export from `realtime/__init__.py`.
+- **`ContinuousPipeline`** — orchestrates the flow over a `MessageBroker`. All collaborators are
+  injected (broker, `KalmanStateUpdater` + its `MemoryStateStore`, `ContinuousBayesianUpdater`,
+  `VectorizedMonteCarloEngine`, `SimulationBoardService`, base `WorldState`, `ScenarioSet`,
+  `SimulationConfig`), so transport and engines are swappable and the whole thing is unit-testable.
+  `async start(max_events=None)` launches a forecast worker and runs an `EventConsumer` on the broker.
+- **Fast path / slow path split (the throughput answer).** `process_event` (the consumer callback) is
+  **synchronous and sub-millisecond**: `event.to_observation()` → `KalmanStateUpdater.apply_observation`
+  → `ContinuousBayesianUpdater.update_probabilities` → enqueue a forecast job. The consumer acks
+  immediately, so ingestion is bounded by the cheap math, never by Monte Carlo. The compute-heavy
+  stages (Monte Carlo, then the LLM board) run in a background `_forecast_loop` worker, **off the
+  event loop via `asyncio.to_thread`**.
+- **Per-cell coalescing.** The forecast queue keeps only the *latest* job per `cell_id` (a `_jobs`
+  dict + a `_pending` set guard a single queue entry per cell), so a burst of N events for one cell
+  collapses to **one** Monte Carlo cycle of the freshest state — the high-throughput guarantee.
+- **Board gating.** The decision board only re-runs when headline risk moves ≥ `risk_change_threshold`
+  (default 5.0 / 100) since the last report for that cell (first forecast always reports) — damps LLM
+  churn. Headline risk = `posterior_mixture_risk(reweighted_scenarios, per-scenario MC means)`;
+  confidence = `confidence_from_entropy(posterior)`. Live Kalman means overlay onto the base
+  `WorldState` (name-matched vars); the Bayesian posterior replaces the `ScenarioSet` priors.
+- **`build_default_pipeline()`** wires the offline Liguria-wildfire defaults (memory broker, three
+  wildfire branches, mock LLM board → runs with no network/key).
+- **`tests/realtime/test_realtime_pipeline.py`** (renamed from `test_pipeline.py` to avoid a basename
+  clash with `tests/unit/test_pipeline.py`) — 3 tests, LLM mocked via a spy provider: one extreme-drought
+  event traverses Broker → Kalman → Bayesian → Monte Carlo → report (belief shifts to the drought
+  branch, all three scenario outcomes present, report generated); a 3-event burst coalesces to one MC
+  cycle; unchanged risk skips the board.
+
+**Verified green:** ruff clean, mypy clean on the new module + test; **139 pytest pass** (was 136).
+Smoke run: drought + heat + wind for one cell → risk ~94/100 SEVERE, posterior collapses onto
+`hotter_drier`, one decision report — in ~1 s offline.
+
+### What Worked
+- **Dependency-injected orchestrator + a `build_default_pipeline()` factory.** The class takes every
+  engine as a constructor arg (testable, swappable transport); the factory wires the offline defaults.
+  Same pattern as the V2 streaming layer — kept the diff small and the test honest.
+- **Fast/slow split with `asyncio.to_thread` + a coalescing queue.** This is the direct answer to "does
+  a 500ms Monte Carlo block the consumer?" — no: the consumer only does Kalman+Bayesian and acks, while
+  MC/board run off-loop and a burst collapses to the latest state. Mirrors the Session-9 off-loop pattern.
+- **Reusing V2 wholesale.** `VectorizedMonteCarloEngine`, `SimulationBoardService`, `posterior_mixture_risk`,
+  `confidence_from_entropy`, and the wildfire scenarios all dropped in unchanged — the Math Firewall holds
+  end to end (the spy-LLM test confirms the board ran but never touched a number).
+
+### What Didn't Work / Gotchas
+- **A single observation with no `std` barely moves the posterior.** The Kalman filter defaults a
+  missing measurement σ to variance 1.0, which widens the likelihood scale so much that all scenario
+  archetypes look equidistant and the prior dominates (first test failed: baseline 0.47 > hotter_drier
+  0.32). Fix: a real "Extreme Drought" reading *is* a confident measurement — the test event now carries
+  `std=0.05`, which sharpens the likelihood and flips the belief to `hotter_drier`. Lesson: feeds must
+  emit measurement uncertainty for the Bayesian layer to discriminate.
+- **Test basename collision.** pytest uses flat module names (no `__init__.py` in test dirs), so
+  `realtime/test_pipeline.py` clashed with `unit/test_pipeline.py` at collection. Renamed to
+  `test_realtime_pipeline.py`.
+- **First forecast always reports** (prior risk is `None`), so the board-gating test pre-seeds
+  `_last_risk[cell]` to exercise the skip path.
+
+### Next Steps (Session 23 — V3 Final Demo & Productization)
+- **A tactical live-demo script in the `demo_v2.py` mold** (testable `run_demo`, stdlib console): feed a
+  Liguria observation sequence through `ContinuousPipeline` and render *both* uncertainties tightening —
+  Kalman variance shrinking and the categorical belief sharpening — tick by tick, ending in the report.
+- **Wire `ContinuousPipeline` into the API / WebSocket layer** so the frontend dashboard streams the
+  continuously-updated `ForecastResult` (risk, band, posterior, report) like the V2 `StateChange` feed.
+- **The first concrete `Processor`** (still open since S18/S19): real grid `CellId` assignment (replace
+  `naive_cell_id`), validate/dedupe, so multi-cell global ingestion works — then lift the single-belief
+  `ponytail:` to per-cell beliefs/`WorldState`.
+- **Calibrate the tuning knobs against real data** — scenario profiles, `risk_change_threshold`,
+  `process_noise_rate`, MC `n_iterations` are all illustrative; fit to live FIRMS/ERA5 feeds.
+- **Productize:** package the pipeline as a runnable service (`make pipeline` / a `scripts/` entrypoint),
+  document the architecture in `docs/`, and add a Redis-broker integration path for multi-node throughput.
 ---
 
 ## What Worked (decisions that succeeded — keep these)
