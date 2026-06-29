@@ -4,9 +4,11 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-29** · End of **Session 15** (VECTIS V2 Release — dashboard wired into
-the router + nav, V2 architecture diagrams, demo video script, README overhaul with benchmarks +
-V3 roadmap; 107 backend tests green, frontend typecheck/lint/build/tests all green). **V2 is done.**
+Last updated: **2026-06-29** · End of **Session 17** (API Data Ingestion Layer — resilient
+`BaseAPIConnector` with retry/backoff; weather/satellite/generic concrete connectors;
+`IngestionManager` fanning connectors into one `GlobalEvent` stream). **V2 shipped; V3 ingestion
+layer live.** (Session 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator`
+interfaces, docs sanitized of external brand/pop-culture references.)
 
 > **Session history:** S1 — full foundation + working vertical slice (agents/ML/API/
 > frontend). S2 — hardened the backend/data **foundation** (DB session layer, Alembic
@@ -751,6 +753,95 @@ V3 roadmap`.
 `eslint --max-warnings 0` clean, `vite build` succeeds (the >500 kB chunk warning is pre-existing,
 from three.js/maplibre, not V2 code), `vitest` 7 passed.
 
+
+## Current Progress (Session 16 — V3 Foundation & Real-Time Architecture — COMPLETE)
+
+Focus: **The V3 Paradigm Shift.** Transitioning from a localized, on-demand engine (V2) to a continuous, living system that observes the entire world.
+
+**What was built (110 tests pass, ruff/mypy clean):**
+- **Purge Directive Executed:** The repository was fully sanitized of all pop-culture and external corporate references. VECTIS now uses generic, enterprise-grade terminology.
+- **V3 Documentation:** Created `docs/v3_realtime_architecture.md` and `docs/v3_state_management.md` defining the new concepts (Event, Stream, State, Observation, Update, Forecast).
+- **Package Scaffold:** Created `backend/vectis/realtime/` with subpackages (`ingestion`, `events`, `streams`, `processors`, `state`, `forecasting`), each heavily documented with `__init__.py` blueprints.
+- **Base Interfaces:** - `realtime/events/base.py`: Defined `GlobalEvent` (raw, untrusted) and `GlobalObservation` (normalized, tied to a grid cell).
+  - `realtime/state/base.py`: Defined `CellState` and the `StateEstimator` ABC to handle continuous predict-correct filtering (Kalman/Bayesian).
+  - `tests/realtime/test_foundations.py`: Guarded the V3 interfaces.
+
+## What Worked
+- **(S16) Sharding state by Global Grid Cells.** Designing the `StateEstimator` to treat each geographical cell as an independent state allows infinite horizontal scaling (planetary-scale parallelism without global locks).
+- **(S16) Strict Trust Boundary.** Separating `GlobalEvent` (raw/untrusted) from `GlobalObservation` (validated) enforces data integrity before it ever touches the math engine.
+
+## What Didn't Work / Gotchas
+- **(S16) API Stall on Documentation.** The LLM stalled while writing the final `HANDOFF.md` summary due to context size, requiring a manual closeout.
+
+## Next Steps (Session 17 — pick up here)
+**Goal:** Proceed with V3 implementation.
+**Focus on Session 17 (Continuous State Estimation):**
+- Implement the concrete `StateEstimator` using Kalman Filters or continuous Bayesian updating for `CellState`.
+- Build the first concrete `Processor` to turn a mock global event into a `GlobalObservation`.
+---
+
+## Current Progress (Session 17 — API Data Ingestion Layer — COMPLETE)
+
+**Goal:** Build the layer that receives data from the real world — a robust API connector
+framework that fetches external JSON, survives network instability, and normalizes payloads into
+V3 `GlobalEvent`/`GlobalObservation` objects.
+
+**Current Progress: Session 17 (API Data Ingestion Layer — COMPLETE).** All built on the S16
+foundation, no interface changes. `realtime/` tests: 8 pass (3 foundation + 5 ingestion).
+
+- **`realtime/connectors/base.py` — `BaseAPIConnector` (resilient HTTP).** `get_json()` wraps one
+  GET in **exponential backoff** (`backoff_base * 2**attempt`): retries timeouts, connection
+  errors, and 5xx; **fails fast on 4xx** (a client bug won't fix itself by retrying) and on JSON
+  decode errors. Raises `ConnectorError` only after exhausting retries. `collect()` = `fetch()` →
+  `normalize()` that **never raises** — on a total outage it logs once and returns `[]`, so a dead
+  feed degrades the stream instead of crashing it. `httpx.Client` is injectable; `sleep` is
+  injectable so backoff is testable without real waits.
+- **`realtime/connectors/{weather,satellite,generic}.py` — concrete connectors.**
+  `WeatherAPIConnector` (temp/humidity/wind → one event per canonical variable; offline-safe
+  synthetic reading with no `base_url`), `SatelliteAPIConnector` (NASA-FIRMS-style active-fire
+  rows), `GenericJSONConnector` (arbitrary webhook payloads). Each implements only `fetch` +
+  `normalize` and inherits retry/degradation for free.
+- **`realtime/ingestion/manager.py` — `IngestionManager` (the orchestrator).** Holds a set of
+  active connectors and merges them into one event stream. `poll_once()` = one synchronous sweep
+  (a dead feed contributes `[]`, never aborts the sweep); `run(interval, max_cycles)` = a
+  self-pacing generator yielding a continuous `GlobalEvent` stream, sleeping *between* sweeps only.
+  Kept synchronous on purpose (`ponytail:` swap for asyncio/Kafka in S18 — connector contract is
+  stable). `sleep` injectable for tests.
+- **`tests/realtime/test_connectors.py` — 5 tests** driving HTTP with `httpx.MockTransport` (no
+  sockets, no `responses` dep) and a no-op `sleep`: retries 500-then-200; 4xx fails fast without
+  retry; persistent 503 outage degrades to `[]`; raw `{"temperature","humidity","wind"}` normalizes
+  into `GlobalObservation`s with the right variables/source; manager merges connectors and survives
+  a dead feed (3 events from the live feed, none from the dead one, no crash).
+
+**Git commits (this session):**
+- `feat(realtime): add resilient base API connector with retry logic`
+- `feat(realtime): add weather, satellite, and generic JSON connectors`
+- `feat(realtime): add ingestion orchestrator and connector tests`
+
+### What Worked
+- **(S17) Resilience pushed into the base, not the manager.** `collect()` swallowing its own outage
+  means the orchestrator stays a trivial fan-in loop — one dead feed can never stall the others.
+- **(S17) `httpx.MockTransport` + injectable `sleep`.** Tests exercise real retry/backoff control
+  flow against simulated 500→200 with zero network and zero wall-clock delay; no new test dep.
+- **(S17) Offline-safe connectors.** With no `base_url`, connectors return deterministic synthetic
+  readings, so the whole ingestion layer runs (and the demo works) with no network or API keys.
+
+### What Didn't Work / Gotchas
+- **(S17) Server crash mid-write.** The S17 server aborted while `manager.py` was being written
+  (before commit/handoff). On resume the file was found **complete and contract-consistent**
+  (`collect()`/`close()` match `BaseAPIConnector`); finalized = verify + test + commit, no rewrite.
+- **(S17) 5xx isn't an `HTTPStatusError` by default.** `response.raise_for_status()` would raise it,
+  but to *retry* 5xx and *re-raise* 4xx the code raises `HTTPStatusError` explicitly on `>=500` and
+  branches on `status < 500` in the handler — otherwise a 503 would fail fast like a 404.
+
+### Next Steps (Session 18 — pick up here)
+**Focus on Session 18 (Stream Processing & Event Routing):**
+- Build the `processors` stage: validate/deduplicate raw `GlobalEvent`s and assign a real grid
+  `CellId` (replace `naive_cell_id`'s 0.1° quantization with H3/raster tiling).
+- Route normalized `GlobalObservation`s to the per-cell `StateEstimator` (S16 ABC) for continuous
+  predict-correct updates.
+- Replace `IngestionManager`'s synchronous poll loop with async fan-in / a real stream backend
+  (asyncio gather or Kafka producer) — the connector contract stays unchanged.
 ---
 
 ## What Worked (decisions that succeeded — keep these)
