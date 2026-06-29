@@ -4,10 +4,14 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-29** · End of **Session 19** (State Estimation Engine — the V3 "present":
-`WorldCellState` versioned per-cell state; `StateStore` ABC + `MemoryStateStore` with replayable
-version history; `StateUpdater.apply_observation` folding observations in via EMA, bumping
-version/timestamp). **V2 shipped; V3 ingestion + streaming + state estimation live.** (Session 18:
+Last updated: **2026-06-30** · End of **Session 20** (Kalman Filter Foundation — the EMA merge
+replaced by a 1D predict→correct filter: `kalman/filter.py` Gaussian `(mean, variance)` math,
+`KalmanCellState` uncertainty-aware state, `KalmanStateUpdater` fusing observations by Kalman gain so
+variance *drops* as data corroborates; `StateStore` generalized to serve both models). (Session 19:
+State Estimation Engine — the V3 "present": `WorldCellState` versioned per-cell state; `StateStore`
+ABC + `MemoryStateStore` with replayable version history; `StateUpdater.apply_observation` folding
+observations in via EMA, bumping version/timestamp.) **V2 shipped; V3 ingestion + streaming + state
+estimation live.** (Session 18:
 Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker` default + a lazy
 `RedisStreamBroker` adapter; `EventProducer`/`EventConsumer` carrying `Data Event → Queue →
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
@@ -1021,6 +1025,111 @@ engine, not a blueprint. `realtime/` tests: **17 pass** (3 foundation + 5 ingest
 - **Promote to the Kalman `StateEstimator`** when per-variable uncertainty is needed: carry
   covariance in `WorldCellState`, swap the EMA merge for a predict–correct gain, and have the
   updater satisfy the S16 ABC literally.
+---
+
+## Current Progress (Session 20 — Kalman Filter Foundation — COMPLETE)
+
+### Goal
+Replace the Session-19 **exponential moving average** with the first dynamic update system that
+**reasons about uncertainty**: a 1D **Kalman filter** (predict → correct). Each variable becomes a
+Gaussian belief `(mean, variance)`; new observations are fused against the estimate by the **Kalman
+gain**, balancing prediction uncertainty against observation uncertainty. The defining property the
+EMA lacked: as consistent data arrives, **variance drops** — the system gets measurably more
+confident over time.
+
+### Current Progress: Session 20 (Kalman Filter Foundation — COMPLETE)
+A new **`realtime/forecasting/kalman/`** package implements the filter, a parallel uncertainty-aware
+state model, and a drop-in updater. Full backend suite green: **133 pytest pass** (was 124), ruff
+clean, mypy clean (127 source files). `realtime/` tests now **26 pass** (added 9 Kalman tests).
+
+- **`kalman/filter.py` — the pure math.** `Gaussian(mean, variance)` NamedTuple + three logic-free
+  functions: `predict(prior, process_variance)` (static dynamics — mean held, variance grows by
+  `process_noise_rate × seconds_elapsed`, so a stale estimate defers more to fresh data);
+  `kalman_gain(predicted_var, measurement_var) = predicted_var / (predicted_var + measurement_var)`;
+  `correct(predicted, measurement, measurement_variance)` (mean moves by `gain × residual`, variance
+  → `(1 − gain) × predicted_var`, always ≤ both inputs). Plus `confidence_to_variance(confidence)`
+  bridging a source `GlobalEvent.confidence` to a measurement variance. A `demo()`/`__main__`
+  self-check asserts the brief's worked example (predict 30°C var 4 + observe 32°C var 1 → **31.6°C,
+  var 0.8**) and that 20 consistent observations drive variance monotonically down.
+- **`kalman/state_model.py` — `KalmanCellState` + `VariableEstimate`.** Parallel to the EMA
+  `WorldCellState`: every variable is a `(mean, variance)` Gaussian held in a name-keyed `estimates`
+  map (generic, not fixed fields), with the same `version`/`last_updated`/`sources` contract.
+  `last_updated` is set to the observation's `observed_at` so the next predict step grows uncertainty
+  by the real inter-observation gap. Kept separate so the S19 model/store/tests stay untouched.
+- **`kalman/updater.py` — `KalmanStateUpdater`.** `apply_observation`: fetch current (or fresh cell)
+  → canonicalize the variable via the reused `VARIABLE_FIELDS` map → derive observation variance from
+  `observation.std²` (the carrier of source confidence; else a configured default) → **predict** the
+  prior forward by elapsed time → **correct** with the observation → store the new `(mean, variance)`,
+  bump version/timestamp, append source. First reading of a variable initializes the belief directly.
+- **`realtime/state/store.py` — generalized, not forked.** `StateStore`/`MemoryStateStore` are now
+  generic over the state type (`StateT` bound to a `cell_id` Protocol), so **one** versioned store
+  with history serves both `WorldCellState` (EMA) and `KalmanCellState` (filter) — no duplicate store.
+  The EMA `StateUpdater` is pinned to `StateStore[WorldCellState]`; all 5 S19 state tests pass
+  unchanged.
+- **`tests/realtime/test_kalman.py` (9 tests).** Pure math: high-variance prediction + low-variance
+  observation weights toward the observation (K=0.8); confident prediction barely moves on a noisy
+  obs; gain bounds; `confidence_to_variance` monotonicity. Updater: first obs initializes belief +
+  version; **a sequence of 10 noisy readings of a stable 25.0 converges the mean (<0.3 off) and
+  lowers variance strictly every step (<0.2 final)**; alias canonicalization folds `temp` +
+  `temp_anomaly_c` into one belief; version history is preserved newest-first.
+
+**Git commits (this session):**
+- `feat(forecasting): implement 1D Kalman filter mathematical foundation`
+- `feat(state): add Kalman cell state carrying per-variable uncertainty`
+- `feat(state): integrate Kalman correction step into state updater`
+- `test(forecasting): cover Kalman math and converging variance under noise`
+
+### What Worked
+- **(S20) Kalman gain as the single balance point.** The whole predict-vs-observe trade-off is one
+  ratio: `K = predicted_var / (predicted_var + measurement_var)`. A confident observation (small
+  variance) pulls K→1 and the estimate snaps to it; a noisy one pulls K→0 and the estimate holds.
+  Because corrected variance is `(1 − K) × predicted_var`, it is *always* smaller than the prediction
+  — so confidence can only grow with corroborating data. This is exactly what the fixed-α EMA could
+  never express (its weight, and thus its "confidence", was constant).
+- **(S20) Generalizing the store instead of forking it.** Making `StateStore[StateT]` generic let the
+  Kalman path reuse the S19 versioned history store verbatim — no second `MemoryKalmanStore` to drift.
+  The EMA path only needed a `StateStore[WorldCellState]` annotation; zero behavior change, S19 tests
+  green untouched. Reconcile-don't-duplicate, same lesson as S2/S4/S6/S19.
+- **(S20) A parallel `KalmanCellState`, not an in-place `WorldCellState` rewrite.** Holding beliefs as
+  Gaussians in a name-keyed map (vs S19's fixed float fields) is the cleaner shape for a filter and
+  kept the working EMA engine and all its tests untouched — the model can be promoted to the canonical
+  one in S21 without a risky big-bang migration.
+- **(S20) Pure functions over floats for the math.** `predict`/`correct`/`kalman_gain` take and return
+  plain numbers, so they are trivially unit-testable, vectorizable later, and provably LLM-free — the
+  Math Firewall holds by construction.
+
+### What Didn't Work / Gotchas
+- **(S20) `observed_at`, not wall-clock `now()`, drives the predict step.** Setting `last_updated` to
+  the observation time (not ingestion time) is what makes elapsed-time variance growth correct;
+  out-of-order events are clamped to `elapsed = max(0, …)` so a late-arriving reading never *adds*
+  uncertainty. Using `now()` (as the S19 EMA updater did) would have made the process noise depend on
+  ingestion latency rather than real elapsed time.
+- **(S20) Observation *variance*, not *confidence*, is what the math needs.** The brief speaks of
+  "confidence → variance", but `GlobalObservation` carries `std`, not `confidence`. Resolved by
+  treating `std²` as the measurement variance (std is the V2-convention carrier of source confidence)
+  and providing `confidence_to_variance` as the explicit connector-side bridge for the raw-event path.
+- **(S20) A stale `mypy` shim on PATH exits 1 with no output.** The bare `mypy` binary in this
+  environment returns a silent failure; `python -m mypy` is authoritative and reports
+  *Success: no issues found in 127 source files*. Use `python -m mypy` for the gate.
+
+### Next Steps (Session 21 — Continuous Forecasting & Final Demo)
+- **Wire the Kalman state into `realtime/forecasting/`.** Read each cell's `KalmanCellState` and
+  project it over a horizon by **sampling from the belief distribution** (mean + variance) into the
+  reused V2 Monte Carlo / mixture machinery — so state uncertainty propagates into forecast
+  uncertainty (variance bands, not a point). Derive `fire_risk` from the forecast, not as a raw input.
+- **Build the first concrete `Processor`** (still open from S18/S19): consume `GlobalEvent`s off the
+  broker, validate/dedupe, assign a real grid `CellId` (replace `naive_cell_id`), and call
+  `KalmanStateUpdater.apply_observation` — closing `Producer → Broker → Consumer(Processor) → Kalman
+  updater → forecast` on one node.
+- **Final V3 demo** in the `demo_v2.py` mold (testable `run_demo`, stdlib tactical console): ingest a
+  Liguria observation sequence, show the variance *shrinking* as data corroborates, and emit a
+  continuously-updated forecast. This is the headline: a living, increasingly-confident estimate.
+- **Promote `KalmanCellState` to canonical / satisfy the S16 `StateEstimator` ABC literally** once
+  forecasting consumes it — carry cross-variable covariance (off-diagonal terms) if a multivariate
+  filter is warranted, and fold the discrete scenario belief in via the V2 `BayesianUpdater`.
+- **Calibrate the tuning knobs against real data** — `process_noise_rate` and the default observation
+  variance are illustrative (`ponytail:`); fit them to how fast the real climate variables drift and
+  to actual sensor σ once a FIRMS/ERA5 feed is wired.
 ---
 
 ## What Worked (decisions that succeeded — keep these)
