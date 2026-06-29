@@ -20,9 +20,12 @@ from vectis.realtime.forecasting.kalman.filter import (
     kalman_gain,
     predict,
 )
+from vectis.realtime.forecasting.kalman.state_model import KalmanCellState, VariableEstimate
 
 __all__ = [
     "Gaussian",
+    "KalmanCellState",
+    "VariableEstimate",
     "confidence_to_variance",
     "correct",
     "kalman_gain",
