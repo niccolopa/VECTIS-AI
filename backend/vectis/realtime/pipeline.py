@@ -66,6 +66,21 @@ _DRIVER_LABELS: dict[str, str] = {
     "extreme_wind": "Wind-driven ignition spread",
 }
 
+# Bridge between the two vocabularies that meet at the Kalman→Monte-Carlo boundary:
+#   Kalman/Bayesian key (what KalmanStateUpdater stores) → (WorldState variable it drives,
+#   additive offset applied to the mean).
+# The offset converts an absolute reading to the anomaly the hazard model expects — the
+# weather feed reports absolute °C, but the model's ``temp_anomaly_c`` is an anomaly versus a
+# ~22 °C seasonal climatology (so a 24 °C reading lands as the +2 °C twin baseline).
+# Without this map the temperature estimate — the model's strongest driver — matched no
+# WorldState variable and was silently dropped, leaving risk to move only via Bayesian
+# reweighting (the external audit's finding).
+# ponytail: hand-set climatology baseline; wire to per-cell climatology in calibration (S26).
+KALMAN_TO_WORLD: dict[str, tuple[str, float]] = {
+    "temperature": ("temp_anomaly_c", -22.0),
+    "wind_speed_kmh": ("wind_speed_kmh", 0.0),
+}
+
 
 @dataclass(slots=True)
 class ForecastResult:
@@ -240,12 +255,19 @@ class ContinuousPipeline:
         )
 
     def _overlay_state(self, kalman_state: KalmanCellState) -> WorldState:
-        """Project the live Kalman means onto the base WorldState (name-matched vars)."""
+        """Project the live Kalman means onto the base WorldState via :data:`KALMAN_TO_WORLD`.
+
+        Translates each Kalman/Bayesian variable to the WorldState variable it drives,
+        applying the offset that bridges absolute readings to model anomalies, so the
+        Kalman estimate (not just the Bayesian reweighting) actually moves the Monte Carlo.
+        """
         state = self._base_state.model_copy(deep=True)
-        for var in state.variables:
-            estimate = kalman_state.estimates.get(var.name)
-            if estimate is not None:
-                var.value = estimate.mean
+        by_name = {var.name: var for var in state.variables}
+        for kalman_var, (world_var, offset) in KALMAN_TO_WORLD.items():
+            estimate = kalman_state.estimates.get(kalman_var)
+            target = by_name.get(world_var)
+            if estimate is not None and target is not None:
+                target.value = estimate.mean + offset
         return state
 
     def _reweighted_scenarios(self, posterior: Mapping[str, float]) -> ScenarioSet:
