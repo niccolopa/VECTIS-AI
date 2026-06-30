@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/v1/intelligence", tags=["intelligence"])
 
 
 class ReportRequest(BaseModel):
-    region: str = "liguria"
+    region: str = "california"
 
 
 @router.post("/reports")

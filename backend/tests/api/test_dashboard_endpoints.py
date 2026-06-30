@@ -9,14 +9,14 @@ Also assert the payloads carry enough statistics to draw a box-and-whisker chart
 from __future__ import annotations
 
 
-def test_list_twins_includes_liguria(client) -> None:
+def test_list_twins_includes_california(client) -> None:
     res = client.get("/api/v1/dashboard/twins")
     assert res.status_code == 200
-    assert "liguria" in res.json()
+    assert "california" in res.json()
 
 
 def test_twin_view_shape(client) -> None:
-    res = client.get("/api/v1/dashboard/twins/liguria")
+    res = client.get("/api/v1/dashboard/twins/california")
     assert res.status_code == 200
     body = res.json()
 
@@ -48,11 +48,11 @@ def test_twin_view_unknown_returns_404(client) -> None:
 
 
 def test_what_if_hotter_raises_risk(client) -> None:
-    baseline = client.get("/api/v1/dashboard/twins/liguria").json()["risk"]["risk"]
+    baseline = client.get("/api/v1/dashboard/twins/california").json()["risk"]["risk"]
 
     res = client.post(
         "/api/v1/dashboard/simulate/what-if",
-        json={"twin_id": "liguria", "overrides": {"temperature_anomaly": 5.0}},
+        json={"twin_id": "california", "overrides": {"temperature_anomaly": 5.0}},
     )
     assert res.status_code == 200
     body = res.json()
@@ -64,7 +64,7 @@ def test_what_if_hotter_raises_risk(client) -> None:
 
 
 def test_what_if_is_deterministic_and_cached(client) -> None:
-    payload = {"twin_id": "liguria", "overrides": {"vegetation_stress": 80.0}}
+    payload = {"twin_id": "california", "overrides": {"vegetation_stress": 80.0}}
     first = client.post("/api/v1/dashboard/simulate/what-if", json=payload).json()
     second = client.post("/api/v1/dashboard/simulate/what-if", json=payload).json()
     # Same inputs ⇒ identical numbers (seeded engine + S13 cache).

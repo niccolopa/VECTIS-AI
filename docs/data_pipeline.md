@@ -45,7 +45,7 @@ A `Connector` (`data/connectors/base.py`) returns a `RawFrame` with at least the
 in `RAW_COLUMNS`.
 
 - **`SampleConnector`** (default) — reads the bundled, reproducible Liguria dataset from
-  `data/samples/liguria/cells.csv`. This is why VECTIS runs fully offline.
+  `data/samples/california/cells.csv`. This is why VECTIS runs fully offline.
 - **Live stubs** (`connectors/live.py`) — `FirmsConnector` (NASA FIRMS active fire),
   `Era5Connector` (Copernicus ERA5 weather), `CopernicusLandConnector` (NDVI/land cover).
   They implement the interface and raise until configured with credentials.

@@ -1,7 +1,7 @@
-"""Generate the deterministic Liguria sample dataset.
+"""Generate the deterministic California sample dataset.
 
 This produces a synthetic-but-physically-plausible grid of wildfire-risk
-observations over Liguria. It is *not* real satellite data — it is a
+observations over California. It is *not* real satellite data — it is a
 reproducible stand-in so VECTIS runs end-to-end offline. The label
 (``had_fire``) is generated as a noisy function of the features, so the ML
 layer learns a real, explainable signal and SHAP recovers meaningful drivers.
@@ -16,12 +16,12 @@ import pandas as pd
 
 from vectis.core.config import get_settings
 from vectis.core.logging import get_logger
-from vectis.data.regions import LIGURIA, Region
+from vectis.data.regions import CALIFORNIA, Region
 
 log = get_logger(__name__)
 
 _LAND_COVERS = ["forest", "shrubland", "grassland", "agriculture", "urban", "water"]
-# Probability weights: Liguria is largely forested/hilly.
+# Probability weights: California is largely forested/hilly.
 _LAND_COVER_P = [0.34, 0.24, 0.12, 0.14, 0.13, 0.03]
 _FLAMMABILITY = {
     "forest": 0.90, "shrubland": 0.80, "grassland": 0.65,
@@ -98,7 +98,7 @@ def build_frame(region: Region, seed: int) -> pd.DataFrame:
     )
 
 
-def generate(region: Region = LIGURIA, seed: int | None = None) -> str:
+def generate(region: Region = CALIFORNIA, seed: int | None = None) -> str:
     """Generate and persist the sample dataset; returns the output path."""
     settings = get_settings()
     seed = settings.random_seed if seed is None else seed

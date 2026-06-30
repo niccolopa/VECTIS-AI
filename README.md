@@ -43,7 +43,7 @@ VECTIS is built in three layers:
   path** (Monte Carlo + LLM board) so ingestion never blocks on simulation.
 
 The first complete vertical is **Climate (wildfire) Risk Intelligence**, demoed
-end-to-end on **Liguria, Italy**. It runs **fully offline** with a deterministic mock
+end-to-end on **California, USA**. It runs **fully offline** with a deterministic mock
 LLM and a bundled dataset — **no API keys required**.
 
 ---
@@ -148,7 +148,7 @@ python -m vectis.scripts.demo          # V1: one reactive Decision Report
 ```
 
 `demo_v3_live` is the flagship: mock weather + satellite feeds get hotter and drier each
-tick, and you watch the Liguria wildfire risk climb, the scenario belief swing from
+tick, and you watch the California wildfire risk climb, the scenario belief swing from
 *baseline* to *hotter & drier*, and the decision board re-convene — a living system, not a
 static report. Ctrl+C to stop, or bound it with `--ticks N` (e.g. `--ticks 12 --interval 1`).
 
@@ -167,7 +167,7 @@ V2 dashboard. Push a live observation and watch the Probability Timeline move:
 
 ```bash
 curl -s -X POST localhost:8000/api/v1/stream/ingest -H "Content-Type: application/json" \
-  -d '{"kind":"weather_alert","source":"demo","region":"liguria","variable":"temp_anomaly_c","value":4.0,"severity":"critical"}'
+  -d '{"kind":"weather_alert","source":"demo","region":"california","variable":"temp_anomaly_c","value":4.0,"severity":"critical"}'
 ```
 
 ### Option C — Docker (full stack)

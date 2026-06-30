@@ -22,11 +22,11 @@ def test_list_regions(client) -> None:
     res = client.get("/api/v1/regions")
     assert res.status_code == 200
     keys = [r["key"] for r in res.json()]
-    assert "liguria" in keys
+    assert "california" in keys
 
 
 def test_run_and_fetch_analysis(client) -> None:
-    created = client.post("/api/v1/analyses", json={"region": "liguria"})
+    created = client.post("/api/v1/analyses", json={"region": "california"})
     assert created.status_code == 201
     report = created.json()
     assert report["risk_score"] >= 0
@@ -44,7 +44,7 @@ def test_unknown_region_returns_404(client) -> None:
 
 
 def test_model_card_endpoint(client) -> None:
-    res = client.get("/api/v1/models/liguria")
+    res = client.get("/api/v1/models/california")
     assert res.status_code == 200
     card = res.json()
     assert "metrics" in card and "feature_names" in card

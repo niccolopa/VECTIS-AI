@@ -17,7 +17,7 @@ pytestmark = pytest.mark.integration
 
 from vectis.agents.langgraph_engine import LangGraphOrchestrator  # noqa: E402
 
-REGION = AnalysisRequest(region="liguria")
+REGION = AnalysisRequest(region="california")
 
 
 def test_langgraph_runs_all_six_agents() -> None:

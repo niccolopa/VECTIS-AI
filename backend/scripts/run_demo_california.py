@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""VECTIS V2 — Liguria wildfire end-to-end demo (console entry point).
+"""VECTIS V2 — California wildfire end-to-end demo (console entry point).
 
 Run from the ``backend/`` directory:
 
-    python scripts/run_demo_liguria.py
+    python scripts/run_demo_california.py
 
 Thin wrapper so the documented command works whether or not the package is
 pip-installed; the demo itself lives in ``vectis.scripts.demo_v2`` (importable

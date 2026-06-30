@@ -1,4 +1,4 @@
-"""Bundled sample connector — reads the deterministic Liguria dataset from disk.
+"""Bundled sample connector — reads the deterministic California dataset from disk.
 
 This is the default data source and the reason VECTIS runs end-to-end with no
 external credentials. The dataset is produced by

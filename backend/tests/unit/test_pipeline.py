@@ -14,7 +14,7 @@ from vectis.data.regions import get_region
 
 
 def _raw_frame() -> pd.DataFrame:
-    return get_connector("sample").fetch(get_region("liguria")).frame.copy()
+    return get_connector("sample").fetch(get_region("california")).frame.copy()
 
 
 def test_validate_rejects_missing_columns() -> None:
@@ -44,7 +44,7 @@ def test_clean_deduplicates_cells() -> None:
 
 
 def test_run_pipeline_is_deterministic(pipeline_result) -> None:
-    again = run_pipeline(get_connector("sample").fetch(get_region("liguria")),
+    again = run_pipeline(get_connector("sample").fetch(get_region("california")),
                          require_label=True)
     assert pipeline_result.dataset_version == again.dataset_version
     assert pipeline_result.has_label and LABEL in pipeline_result.features.columns

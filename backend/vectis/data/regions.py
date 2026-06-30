@@ -1,7 +1,7 @@
 """Region registry.
 
 A region defines the geographic extent and grid resolution of an analysis.
-Liguria (Italy) is the bundled demo region; adding a region is a matter of
+California (USA) is the bundled demo region; adding a region is a matter of
 adding an entry here and providing data (sample or via a live connector).
 """
 
@@ -38,19 +38,38 @@ class Region:
         return self.rows * self.cols
 
 
-# Liguria: the arc of north-west Italy along the Mediterranean — a region with a
-# real, well-documented summer wildfire profile, which makes it a meaningful
-# demo for climate-risk intelligence.
-LIGURIA = Region(
-    key="liguria",
-    label="Liguria, Italy",
-    country="IT",
-    bbox=BBox(min_lat=43.78, min_lon=7.49, max_lat=44.68, max_lon=10.07),
+# California: the wildfire-prone US West Coast state — a globally recognized
+# climate-risk theatre. The bundled demo region: changing this bbox is what
+# migrates the generated sample grid onto North America so it plots there.
+CALIFORNIA = Region(
+    key="california",
+    label="California, USA",
+    country="US",
+    bbox=BBox(min_lat=36.0, min_lon=-122.0, max_lat=40.0, max_lon=-118.0),
     rows=12,
     cols=20,
 )
 
-REGIONS: dict[str, Region] = {LIGURIA.key: LIGURIA}
+# Additional globally recognizable wildfire regions (live-twin / catalog entries).
+NEW_SOUTH_WALES = Region(
+    key="new_south_wales",
+    label="New South Wales, Australia",
+    country="AU",
+    bbox=BBox(min_lat=-34.5, min_lon=149.0, max_lat=-32.5, max_lon=151.5),
+    rows=12,
+    cols=20,
+)
+
+ATTICA = Region(
+    key="attica",
+    label="Attica, Greece",
+    country="GR",
+    bbox=BBox(min_lat=37.8, min_lon=23.4, max_lat=38.4, max_lon=24.1),
+    rows=12,
+    cols=20,
+)
+
+REGIONS: dict[str, Region] = {r.key: r for r in (CALIFORNIA, NEW_SOUTH_WALES, ATTICA)}
 
 
 def get_region(key: str) -> Region:

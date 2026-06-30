@@ -24,6 +24,7 @@ import threading
 import time
 
 from vectis.core.logging import get_logger
+from vectis.data.regions import REGIONS
 from vectis.digital_twin.entities.region import RegionTwin
 from vectis.digital_twin.schemas import RiskState
 from vectis.digital_twin.state.manager import StateManager
@@ -31,7 +32,7 @@ from vectis.streaming.events import StateChange, StreamEvent
 
 log = get_logger(__name__)
 
-_DEFAULT_REGION = "liguria"
+_DEFAULT_REGION = "california"
 
 
 class RealTimeUpdater:
@@ -105,11 +106,13 @@ class RealTimeUpdater:
 
 
 def build_default_updater() -> RealTimeUpdater:
-    """Construct the real-time updater with the Liguria climate-risk twin registered.
+    """Construct the real-time updater with the global climate-risk twins registered.
 
-    ponytail: single region for now. Register more ``RegionTwin``s (or other twins)
-    on the same manager as regions are added.
+    California is the default (it also carries the seeded V1 sample dataset); the other
+    twins make the live ingest/report endpoints work for the full global region list.
+    Twins run on their own digital-twin state, so they need no per-region sample CSV.
     """
     manager = StateManager()
-    manager.register(RegionTwin("liguria"))
+    for region in REGIONS:
+        manager.register(RegionTwin(region))
     return RealTimeUpdater(manager)

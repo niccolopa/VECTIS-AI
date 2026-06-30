@@ -33,7 +33,7 @@ def test_all_candidates_trained(pipeline_result) -> None:
 
 def test_shap_shape_matches_features(pipeline_result) -> None:
     registry = ModelRegistry()
-    pipeline, _ = registry.load("liguria")
+    pipeline, _ = registry.load("california")
     x = pipeline_result.features[FEATURE_NAMES]
     sv = ShapExplainer(pipeline, x).attribute(x)
     assert sv.shape == (len(x), len(FEATURE_NAMES))
@@ -41,7 +41,7 @@ def test_shap_shape_matches_features(pipeline_result) -> None:
 
 
 def test_predictor_produces_explainable_region(pipeline_result) -> None:
-    prediction = RiskPredictor("liguria").predict(pipeline_result)
+    prediction = RiskPredictor("california").predict(pipeline_result)
     assert 0 <= prediction.aggregate_risk_score <= 100
     assert len(prediction.cells) == len(pipeline_result.features)
     assert prediction.top_drivers, "every prediction must have attributed drivers"
