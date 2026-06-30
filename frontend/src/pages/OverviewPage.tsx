@@ -82,7 +82,7 @@ export function OverviewPage() {
       <Card flush className="mb-4">
         <div className="p-4">
           <CardHeader
-            title="Liguria — Tactical View"
+            title="Global Tactical View"
             eyebrow="Geospatial intelligence"
             actions={<span className="text-2xs text-muted-2">drag to orbit · scroll to zoom</span>}
           />

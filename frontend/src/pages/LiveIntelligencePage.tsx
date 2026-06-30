@@ -18,7 +18,7 @@ export function LiveIntelligencePage() {
     <PageContainer>
       <PageHeader
         title="Live Intelligence"
-        subtitle="V3 Continuous Intelligence Engine · streaming Liguria wildfire risk"
+        subtitle="V3 Continuous Intelligence Engine · live global wildfire risk"
         actions={
           <Badge tone={connected ? "success" : "muted"}>
             {connected ? "● stream live" : "stream offline"}

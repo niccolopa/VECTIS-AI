@@ -17,20 +17,20 @@ export interface DatasetEntry {
 export const MOCK_DATASETS: DatasetEntry[] = [
   {
     key: "sample",
-    name: "Bundled Liguria Sample",
+    name: "Bundled Validation Sample",
     provider: "VECTIS",
     category: "bundled",
     status: "active",
     description:
-      "Deterministic, version-controlled sample grid (240 cells) used for offline, reproducible analysis.",
+      "Deterministic, version-controlled regional sample grid used for offline, reproducible analysis.",
   },
   {
     key: "firms",
     name: "Active Fire Detections",
     provider: "NASA FIRMS (MODIS/VIIRS)",
     category: "fire",
-    status: "planned",
-    description: "Near-real-time thermal anomaly / active fire detections.",
+    status: "active",
+    description: "Near-real-time global thermal anomaly / active fire detections.",
     docsUrl: "https://firms.modaps.eosdis.nasa.gov/api/",
   },
   {
