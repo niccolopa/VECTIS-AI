@@ -4,7 +4,14 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-30** · End of **Session 27** (Global Frontend Hard Reset & UI Polish —
+Last updated: **2026-06-30** · End of **Session 28** (Backend Global Data Reset —
+purged the legacy "Liguria" demo region from the backend so the global frontend (S26/S27) has
+matching global data: the V3 live stream now emits a `California_01` headline cell at lat 37.0 /
+lon −120.0, the region registry/API serves California (default), New South Wales, and Attica
+instead of "Liguria, Italy", and the bundled 240-cell sample dataset was migrated onto North
+America by retargeting the region bbox. The decision board was already region-dynamic, so reports
+now narrate "California" once the twin defaults flipped. **148 backend tests pass**, ruff + mypy
+clean. See the Session 28 section below.) · End of **Session 27** (Global Frontend Hard Reset & UI Polish —
 made the console read as one cohesive global tactical platform on a standard laptop: the Live
 Intelligence grid now breaks at `lg` (was `xl`) so it stays two-column on 1080p, the live map grew
 to 450px and frames the Atlantic at zoom 1.5 (Americas + Europe/Africa in view), the legacy V1
@@ -65,6 +72,68 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 28 — Backend Global Data Reset
+
+**Goal**: The S26/S27 frontend went global, but the **backend still emitted "Liguria"** — the
+live stream's headline cell was `Liguria_01` at the Liguria centroid, `/api/v1/regions` returned
+only "Liguria, Italy", and decision reports rendered "Liguria". On the now-global map the legacy
+Liguria analysis plotted in the Mediterranean while the map framed the Atlantic, so it looked
+empty/disconnected. Purge Liguria from the backend data so the data matches the global UI.
+
+**Current Progress**: Session 28 (**COMPLETE**). Three atomic commits, one per step. Backend
+**148 pytest pass**, `ruff` + `mypy` clean. Live demo verified: headline cell renders
+`California_01`, risk breathes 66 (HIGH) → 84 (SEVERE).
+
+- **Step 1 — live stream** (`feat: move live stream headline cell from Liguria to California`).
+  `realtime/connectors/weather.py` default location → `GeoPoint(37.0, -120.0)`;
+  `realtime/connectors/satellite.py` FIRMS bbox + offline detections → California;
+  `realtime/live_stream.py` `CELL_LABEL = "California_01"`, and the global hotspot footprint now
+  leads with the California headland `(37.0, -120.0)` (its coords **must** match the weather
+  location so both feeds resolve to the same `naive_cell_id` grid cell — that's what gives the
+  headline cell its fire signal); dropped the Liguria hotspot. Renamed the scenario-state factory
+  `liguria_wildfire_state → california_wildfire_state` (+ the 3 sim tests that import it).
+- **Step 2 — region API + data** (`feat: replace hardcoded Liguria region with global California
+  default`). `data/regions.py` `LIGURIA → CALIFORNIA` (key `california`, label "California, USA",
+  US, **bbox lat 36–40 / lon −122 to −118**) plus new `NEW_SOUTH_WALES` and `ATTICA` Region
+  entries; `REGIONS` now serves all three so `GET /api/v1/regions` is a global list.
+  `streaming/updater.py` registers a `RegionTwin` per region and defaults to `california`;
+  `api/routers/intelligence.py` report default → `california`. `scripts/generate_sample.py`
+  defaults to California and **regenerated `data/samples/california/cells.csv`** (240 cells, fire
+  rate 0.438). Renamed `scripts/run_demo_liguria.py → run_demo_california.py`.
+- **Step 3 — decision reports / cleanup** (`refactor: purge remaining Liguria references for
+  dynamic California reports`). The board/agents were **already region-dynamic** (they read
+  `inp.region` from the twin — no hardcoded region in the LLM prompts), so the fix was flipping
+  the `RegionTwin` default to `california` and scrubbing the residual `liguria`/`Liguria` strings
+  across twins, demos, streaming wiring, docstrings, tests, and docs. Reports now narrate
+  "California" end to end.
+
+**How the static region data was migrated to plot on the global map**: the offline 240-cell
+dataset is **generated**, not committed as fixed coordinates — `generate_sample.build_frame`
+lays a regular `linspace` grid across `region.bbox`. So "migrating" the CSV is just retargeting
+the region's bounding box: changing `CALIFORNIA.bbox` from the Ligurian arc (lat 43.78–44.68 /
+lon 7.49–10.07) to California (lat 36–40 / lon −122 to −118) and re-running `make seed`
+reproduces the same physically-plausible grid with North-American lat/lons. No per-cell
+coordinate surgery — one bbox edit translates all 240 cells onto the global basemap.
+
+**What Worked**: a scoped, case-aware string rename (`liguria → california` etc.) across `vectis`
++ `tests` did the bulk mechanically; the bbox-driven sample generator meant the data migration was
+a 4-number edit; and because the analysis board already used the twin's region name, "Step 3" was
+mostly verification, not new code.
+
+**What Didn't Work / Notes**: internal Kalman/Bayesian unit-test cell-id constants (`"44.4,8.9"`)
+were **left as-is** — they're arbitrary grid keys with no "Liguria" label, so renaming them is
+pure churn. Historical/architecture narrative in `docs/` still references Liguria where it
+describes the project's development history; only the *functional* doc references (a CSV path, two
+runnable curl examples, a sequence-diagram twin label) were corrected. NSW/Attica have live twins
+(so `/intelligence/reports` works for them) but **no seeded V1 sample CSV or trained model**, so a
+legacy `POST /analyses` on them returns a clean "sample data not found" — the V3 twin/stream path
+is the global one. `ponytail:` seed + train those two regions if the V1 ML path needs them.
+
+**Next Steps**: the backend is now globally consistent with the frontend. Optional: seed+train NSW
+and Attica for full V1 parity; wire a real global FIRMS bbox when a `MAP_KEY` is present.
 
 ---
 
