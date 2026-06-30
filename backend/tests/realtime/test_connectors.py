@@ -83,8 +83,30 @@ def test_raw_json_normalizes_into_observations() -> None:
     assert temp.value == 34.0 and temp.source == "weather_api"
 
 
+def test_open_meteo_response_is_fetched_and_normalized() -> None:
+    """A live Open-Meteo ``current`` block normalizes to temp/humidity/wind/drought."""
+    body = {"current": {"temperature_2m": 30.0, "relative_humidity_2m": 25.0, "wind_speed_10m": 18.0}}
+    client = _client(httpx.MockTransport(lambda r: httpx.Response(200, json=body)))
+    conn = WeatherAPIConnector(base_url="http://test/v1/forecast", client=client, sleep=lambda _: None)
+
+    obs = {o.variable: o.value for o in (e.to_observation() for e in conn.collect())}
+
+    assert obs == {"temp_anomaly_c": 30.0, "humidity_pct": 25.0, "wind_speed_kmh": 18.0, "drought_index": 0.75}
+
+
+def test_open_meteo_outage_falls_back_to_offline_reading() -> None:
+    """No network → the weather feed degrades to a synthetic reading, never []  or a crash."""
+    client = _client(httpx.MockTransport(lambda r: httpx.Response(503)))
+    conn = WeatherAPIConnector(base_url="http://test/v1/forecast", client=client, max_retries=2, sleep=lambda _: None)
+
+    events = conn.collect()
+    assert {e.to_observation().variable for e in events} == {
+        "temp_anomaly_c", "humidity_pct", "wind_speed_kmh", "drought_index",
+    }
+
+
 def test_manager_merges_and_survives_a_dead_feed() -> None:
-    good = WeatherAPIConnector(sleep=lambda _: None)  # offline synthetic reading
+    good = WeatherAPIConnector(base_url=None, sleep=lambda _: None)  # forced offline synthetic reading
 
     dead = _Probe(
         client=_client(httpx.MockTransport(lambda r: httpx.Response(500))),
@@ -95,4 +117,4 @@ def test_manager_merges_and_survives_a_dead_feed() -> None:
     mgr = IngestionManager([good, dead], sleep=lambda _: None)
     batch = list(mgr.run(interval=0, max_cycles=1))
 
-    assert len(batch) == 3  # 3 weather events; dead feed contributes nothing, no crash
+    assert len(batch) == 4  # temp/humidity/wind/drought; dead feed contributes nothing, no crash
