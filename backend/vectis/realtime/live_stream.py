@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 
@@ -224,6 +225,60 @@ class LiveClimateStream:
             "report_id": report.report_id if report else None,
             "report": new_report,
         }
+
+
+class LiveStreamBroadcaster:
+    """Run ONE :class:`LiveClimateStream` in the background and fan its frames out to N viewers.
+
+    The expensive pipeline (Kalman → Bayesian → Monte Carlo → decision board) runs **exactly
+    once** regardless of how many SSE clients are connected. Each subscriber is a lightweight
+    bounded queue, not a new compute loop — so 1,000 dashboards open at once means one pipeline
+    feeding 1,000 queues, not 1,000 concurrent Monte Carlo engines.
+
+    Started/stopped from the FastAPI lifespan. The producer never blocks on a slow client: a
+    full subscriber queue drops its oldest frame, so one stalled browser can't back-pressure the
+    single global loop or any other viewer.
+    """
+
+    def __init__(self, stream: LiveClimateStream, *, tick_seconds: float = 1.5) -> None:
+        self._stream = stream
+        self._tick_seconds = tick_seconds
+        self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+        self._latest: dict[str, Any] | None = None
+        self._task: asyncio.Task[None] | None = None
+
+    async def start(self) -> None:
+        if self._task is None:
+            self._task = asyncio.create_task(self._run())
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._task
+            self._task = None
+
+    async def _run(self) -> None:
+        """The single producer: drive the pipeline forever, broadcasting each frame."""
+        async for frame in self._stream.frames(tick_seconds=self._tick_seconds):
+            self._latest = frame
+            for queue in list(self._subscribers):
+                if queue.full():  # slow consumer — drop its oldest, never stall the producer
+                    with suppress(asyncio.QueueEmpty):
+                        queue.get_nowait()
+                queue.put_nowait(frame)
+
+    async def subscribe(self) -> AsyncIterator[dict[str, Any]]:
+        """Yield frames to one viewer; the newest frame is delivered immediately on connect."""
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=8)
+        if self._latest is not None:
+            queue.put_nowait(self._latest)
+        self._subscribers.add(queue)
+        try:
+            while True:
+                yield await queue.get()
+        finally:
+            self._subscribers.discard(queue)
 
 
 def _event_view(event: GlobalEvent) -> dict[str, Any]:

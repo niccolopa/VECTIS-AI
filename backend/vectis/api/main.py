@@ -18,6 +18,7 @@ from vectis.core.config import get_settings
 from vectis.core.exceptions import VectisError
 from vectis.core.logging import configure_logging, get_logger
 from vectis.database.repository import build_repository
+from vectis.realtime.live_stream import LiveClimateStream, LiveStreamBroadcaster
 from vectis.services.analysis_service import AnalysisService
 from vectis.services.dashboard_service import DashboardService
 from vectis.streaming.broadcaster import ConnectionManager
@@ -36,8 +37,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Dashboard shares the updater's twin registry, so live ingest updates show up.
     app.state.dashboard = DashboardService(app.state.updater.manager)
     app.state.broadcaster = ConnectionManager()
+    # ONE global V3 pipeline, fanned out to every SSE viewer (not one pipeline per connection).
+    app.state.live_stream = LiveStreamBroadcaster(LiveClimateStream())
+    await app.state.live_stream.start()
     log.info("api.startup", env=settings.env, llm_provider=settings.llm_provider)
     yield
+    await app.state.live_stream.stop()
     log.info("api.shutdown")
 
 
