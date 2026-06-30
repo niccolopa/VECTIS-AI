@@ -15,13 +15,13 @@ describe("RiskIntelligencePage", () => {
     renderWithProviders(<RiskIntelligencePage />);
 
     // Prompt before any analysis exists.
-    expect(screen.getByText(/Run an analysis to render/)).toBeInTheDocument();
+    expect(screen.getByText("No analysis selected")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Run analysis" }));
 
     // After the mocked POST + GET, the detail panel renders the report.
     expect(await screen.findByText(/AI Summary/)).toBeInTheDocument();
-    expect(screen.getAllByText("Liguria, Italy").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Global View").length).toBeGreaterThan(0);
     // Severe risk band from the fixture (shown in the risk badge and the
     // detail panel, so there is legitimately more than one).
     expect(screen.getAllByText("Severe").length).toBeGreaterThan(0);

@@ -1,46 +1,20 @@
 import { PageContainer, PageHeader } from "@/components/layout/Page";
-import { Card, EmptyState, LoadingState } from "@/components/ui";
+import { Card } from "@/components/ui";
 import { RiskMap } from "@/components/map/RiskMap";
-import { RiskLegend } from "@/components/map/RiskLegend";
-import { useAnalyses, useAnalysis, useRegions } from "@/hooks/queries";
-import { useSelectionStore } from "@/stores/selectionStore";
+import { WORLD, WORLD_ZOOM } from "@/components/map/world";
 
-// Full-bleed operational map of the active (or most recent) analysis.
+// Global operational basemap — the whole theatre of operations. Detailed,
+// cell-level risk is plotted live in the Live Intelligence console; this view
+// frames the planet rather than any single region.
 export function MapsPage() {
-  const { analysisId, selectedCellId, setCell } = useSelectionStore();
-  const { data: list, isLoading: listLoading } = useAnalyses();
-  const effectiveId = analysisId ?? list?.[0]?.id ?? null;
-  const { data: report, isLoading } = useAnalysis(effectiveId);
-  const { data: regions = [] } = useRegions();
-  const region = regions.find((r) => r.key === report?.region) ?? regions[0] ?? null;
-
   return (
     <PageContainer full>
-      <PageHeader
-        title="Maps"
-        subtitle={report ? `${report.area_label} · ${report.cell_risks.length} cells` : "Geographic risk view"}
-      />
+      <PageHeader title="Maps" subtitle="Global operational view" />
       <Card flush className="relative min-h-0 flex-1">
-        {isLoading || listLoading ? (
-          <LoadingState />
-        ) : report && region ? (
-          <>
-            <RiskMap
-              region={region}
-              cells={report.cell_risks}
-              selectedCellId={selectedCellId}
-              onSelectCell={setCell}
-            />
-            <div className="absolute bottom-3 left-3">
-              <RiskLegend />
-            </div>
-          </>
-        ) : (
-          <EmptyState
-            title="No analysis to map"
-            message="Run an analysis from Risk Intelligence to populate the map."
-          />
-        )}
+        <RiskMap region={WORLD} cells={[]} zoom={WORLD_ZOOM} />
+        <div className="pointer-events-none absolute left-3 top-3 rounded-full border border-border-strong bg-bg/70 px-3 py-1 text-2xs uppercase tracking-wide text-muted backdrop-blur">
+          Global theatre · live hotspots in Live Intelligence
+        </div>
       </Card>
     </PageContainer>
   );

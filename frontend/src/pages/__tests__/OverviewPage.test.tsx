@@ -11,7 +11,7 @@ describe("OverviewPage", () => {
     expect(screen.getByText("Operational Overview")).toBeInTheDocument();
     // From the MSW summary fixture (rendered in both the table row and the
     // "Highest risk" stat card, so there is legitimately more than one).
-    expect((await screen.findAllByText("Liguria, Italy")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Global View")).length).toBeGreaterThan(0);
     expect(screen.getByText("approved")).toBeInTheDocument();
   });
 });

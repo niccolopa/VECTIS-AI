@@ -15,7 +15,7 @@ export const healthFixture: HealthStatus = {
 
 export const regionFixture: RegionInfo = {
   key: "liguria",
-  label: "Liguria, Italy",
+  label: "Global View",
   country: "IT",
   grid: { rows: 12, cols: 20, cells: 240 },
   bbox: { min_lat: 43.78, min_lon: 7.49, max_lat: 44.68, max_lon: 10.07 },
@@ -25,12 +25,12 @@ export const regionFixture: RegionInfo = {
 export const reportFixture: DecisionReport = {
   id: "abc123def456",
   region: "liguria",
-  area_label: "Liguria, Italy",
+  area_label: "Global View",
   generated_at: "2026-06-27T10:00:00+00:00",
   risk_score: 76.7,
   risk_band: "severe",
   confidence: 0.89,
-  summary: "Liguria shows severe wildfire risk driven by drought and vegetation stress.",
+  summary: "Global monitoring shows severe wildfire risk driven by drought and vegetation stress.",
   drivers: [
     { name: "Drought conditions", feature: "drought_index", value: 0.6, contribution: 0.37, direction: "increases", description: "" },
     { name: "Vegetation stress", feature: "vegetation_stress", value: 0.5, contribution: 0.21, direction: "increases", description: "" },
@@ -68,7 +68,7 @@ export const reportFixture: DecisionReport = {
 export const summaryFixture: AnalysisSummary = {
   id: reportFixture.id,
   region: "liguria",
-  area_label: "Liguria, Italy",
+  area_label: "Global View",
   risk_score: 76.7,
   risk_band: "severe",
   confidence: 0.89,
