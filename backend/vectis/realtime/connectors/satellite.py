@@ -17,8 +17,11 @@ import io
 from typing import Any
 
 from vectis.core.config import get_settings
+from vectis.core.logging import get_logger
 from vectis.realtime.connectors.base import BaseAPIConnector
 from vectis.realtime.events.base import GeoPoint, GlobalEvent, GlobalObservation, naive_cell_id
+
+logger = get_logger(__name__)
 
 # FIRMS confidence (0-100) → observation std: a low-confidence detection is noisier.
 _MAX_FRP_STD = 50.0
@@ -69,6 +72,11 @@ class SatelliteAPIConnector(BaseAPIConnector):
         super().__init__(**kwargs)
         # Explicit arg wins; otherwise read the env-backed setting (empty → offline).
         self._api_key = api_key if api_key is not None else get_settings().firms_api_key
+        if not self._api_key:
+            logger.warning(
+                "[WARN] %s has no MAP_KEY (set VECTIS_FIRMS_API_KEY) — "
+                "degrading to mocked California detections", self.source
+            )
         self._product = product
         self._area = area
         self._day_range = day_range

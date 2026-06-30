@@ -26,8 +26,9 @@ from typing import Any
 from vectis.agents.board.service import SimulationBoardService
 from vectis.agents.llm.base import LLMProvider
 from vectis.core.logging import get_logger
+from vectis.realtime.connectors.base import BaseAPIConnector
 from vectis.realtime.connectors.satellite import SatelliteAPIConnector
-from vectis.realtime.connectors.weather import WeatherAPIConnector, WeatherEvent
+from vectis.realtime.connectors.weather import WeatherAPIConnector
 from vectis.realtime.events.base import GlobalEvent, naive_cell_id
 from vectis.realtime.forecasting.bayesian.priors import ScenarioPriors
 from vectis.realtime.forecasting.bayesian.updater import ContinuousBayesianUpdater
@@ -89,6 +90,7 @@ class OscillatingWeatherConnector(WeatherAPIConnector):
         # Baselines kept moderate: temp_anomaly_c = temperature − 22 (see KALMAN_TO_WORLD),
         # and the wildfire logistic saturates past ~+6 °C anomaly. Centering temperature near
         # 25 °C (anomaly ~3) keeps the swing inside the moderate→severe band, not pinned at 100.
+        # Drought is normalized by the base connector (in _VARIABLE_MAP), so just emit the key.
         return {
             "temperature": _wave(t, base=22.5, amp=5.0, period=11.0, ripple=1.2),
             # phase=π → dry when hot
@@ -96,18 +98,6 @@ class OscillatingWeatherConnector(WeatherAPIConnector):
             "wind": max(0.0, _wave(t, base=15.0, amp=8.0, period=8.0, phase=1.0, ripple=2.0)),
             "drought": min(0.95, max(0.10, _wave(t, base=0.40, amp=0.20, period=17.0))),
         }
-
-    def normalize(self, raw: dict[str, Any]) -> list[GlobalEvent]:
-        events = super().normalize(raw)  # temp_anomaly_c / humidity_pct / wind_speed_kmh
-        if raw.get("drought") is not None:
-            events.append(
-                WeatherEvent(
-                    source=self.source,
-                    location=self.location,
-                    payload={"variable": "drought_index", "value": float(raw["drought"])},
-                )
-            )
-        return events
 
 
 class GlobalSatelliteConnector(SatelliteAPIConnector):
@@ -164,6 +154,8 @@ class LiveClimateStream:
         seed: int = 7,
         region: str = "california",
         llm: LLMProvider | None = None,
+        weather: WeatherAPIConnector | None = None,
+        satellite: BaseAPIConnector | None = None,
     ) -> None:
         self._store: MemoryStateStore[KalmanCellState] = MemoryStateStore()
         kalman = KalmanStateUpdater(self._store)
@@ -192,8 +184,11 @@ class LiveClimateStream:
             risk_change_threshold=2.0,
         )
 
-        weather = OscillatingWeatherConnector()
-        satellite = GlobalSatelliteConnector()
+        # Real feeds by default: live Open-Meteo weather (keyless) + NASA FIRMS fires
+        # (which self-degrades to mocked California detections when no MAP_KEY is set).
+        # Tests inject the offline oscillating mocks for deterministic, network-free runs.
+        weather = weather or WeatherAPIConnector()
+        satellite = satellite or SatelliteAPIConnector()
         self._manager = IngestionManager([weather, satellite])
         self._producer = EventProducer(self._manager, broker, topic=DEFAULT_TOPIC)
         # Both feeds report at California's centroid → the same grid cell.

@@ -10,12 +10,22 @@ from __future__ import annotations
 import asyncio
 import json
 
-from vectis.realtime.live_stream import LiveClimateStream
+from vectis.realtime.live_stream import (
+    GlobalSatelliteConnector,
+    LiveClimateStream,
+    OscillatingWeatherConnector,
+)
 
 
 def _frames(ticks: int) -> list[dict]:
     async def run() -> list[dict]:
-        stream = LiveClimateStream(n_iterations=2_000)
+        # Inject the offline oscillating mocks so the test is deterministic and network-free
+        # (the production default fetches live Open-Meteo + NASA FIRMS).
+        stream = LiveClimateStream(
+            n_iterations=2_000,
+            weather=OscillatingWeatherConnector(),
+            satellite=GlobalSatelliteConnector(),
+        )
         return [f async for f in stream.frames(ticks=ticks, tick_seconds=0.0)]
 
     return asyncio.run(run())
