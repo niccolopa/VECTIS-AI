@@ -4,7 +4,14 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-30** · End of **Session 24** (Real-Time Frontend Layer —
+Last updated: **2026-06-30** · End of **Session 25** (Bridging the Reality Gap — closed the
+three architectural debts the external audit flagged: (1) the Kalman→Monte-Carlo overlay now
+maps `temperature`→`temp_anomaly_c` via a `KALMAN_TO_WORLD` bridge so the estimated mean drives
+the simulation, not just Bayesian reweighting; (2) the SSE endpoint no longer spins a pipeline
+per viewer — one `LiveStreamBroadcaster` runs the `ContinuousPipeline` as a single lifespan-owned
+background task and fans frames out to bounded per-subscriber queues; (3) the satellite connector
+now calls the real **NASA FIRMS** area CSV API (key from `VECTIS_FIRMS_API_KEY`, offline mock
+fallback). **147 backend tests pass.**) · End of **Session 24** (Real-Time Frontend Layer —
 the V3 `ContinuousPipeline` is now exposed over **Server-Sent Events** (`GET /api/v1/stream/v3/live`,
 `realtime/live_stream.py` → `LiveClimateStream` yielding JSON forecast frames), and a new **Live
 Intelligence** React console subscribes via `hooks/useV3Stream.ts` (rAF-coalesced rendering so a
@@ -1471,6 +1478,83 @@ generator.
   parses (bound it with a low `iterations` + a client-side disconnect).
 - **Calibrate the tuning knobs against real data** (carried from S23): scenario profiles, `relax_rate`,
   `risk_change_threshold`, MC `n_iterations`.
+---
+
+## Current Progress (Session 25 — Bridging the Reality Gap — COMPLETE)
+
+### Goal
+Fix the three production blockers an external technical audit raised against the V3 architecture and
+connect VECTIS to the real world: (1) a **bug** — the Kalman estimate wasn't reaching the Monte Carlo
+overlay; (2) **scale** — the SSE endpoint ran one pipeline per viewer; (3) **reality** — the satellite
+feed was simulated, not real NASA FIRMS data.
+
+### Current Progress: Session 25 (Bridging the Reality Gap — COMPLETE)
+All three audit findings closed; 147 backend tests pass (was 142), ruff + mypy clean.
+
+- **Bug — Kalman→Monte-Carlo overlay.** Root cause: the `KalmanStateUpdater` stores temperature under
+  the canonical key `temperature` (via `VARIABLE_FIELDS["temp_anomaly_c"]→"temperature"`), but the MC
+  `WorldState` variable is named `temp_anomaly_c`. `pipeline._overlay_state` matched on bare name, so the
+  temperature estimate — the hazard model's strongest driver (coef 0.55) — silently matched nothing and
+  was dropped; only `wind_speed_kmh` (same name on both sides) landed, leaving risk to move purely via
+  Bayesian reweighting. Fix: a module-level `KALMAN_TO_WORLD` bridge (`pipeline.py`) mapping each
+  Kalman/Bayesian variable to the WorldState variable it drives, with an additive offset that converts
+  an absolute reading to the anomaly the model expects (temperature −22 °C climatology baseline, so a
+  24 °C reading reproduces the +2 °C twin baseline). `_overlay_state` rewritten to use it. Verified live:
+  risk now escalates **76.5 → 85.3 → 91.3** across ticks, driven by the rising temperature estimate.
+
+- **Scale — decouple the pipeline from viewers.** Was: `live.py` built a fresh `LiveClimateStream` (its
+  own Kalman→Bayesian→Monte-Carlo loop) **per SSE connection** — N dashboards = N concurrent engines.
+  Now: **`LiveStreamBroadcaster`** (`realtime/live_stream.py`) wraps one `LiveClimateStream`, drives its
+  `frames()` as a **single `asyncio` background task started in the FastAPI lifespan** (`api/main.py` →
+  `app.state.live_stream`), and fans each frame out to bounded per-subscriber `asyncio.Queue`s (newest
+  frame delivered on connect; oldest dropped for a slow client so the single producer never stalls). The
+  `/api/v1/stream/v3/live` endpoint is now a lightweight `subscribe()` fan-out — zero compute per viewer.
+  Verified: two simultaneous subscribers read **identical** frames from one pipeline (`forecasts_run = 3`,
+  not 6).
+
+- **Reality — NASA FIRMS connector.** `connectors/satellite.py` now calls the public FIRMS **area CSV
+  API** (`/api/area/csv/{MAP_KEY}/VIIRS_SNPP_NRT/{Liguria bbox}/1`) when `VECTIS_FIRMS_API_KEY` is set,
+  parsing each detection (stdlib `csv`, no new dep) into a `fire_radiative_power` `GlobalObservation`.
+  Tolerant of product differences (numeric MODIS vs letter VIIRS confidence → midpoint, missing FRP,
+  malformed rows skipped). With no key it falls back to deterministic offline detections, so a fresh
+  clone runs key-free and offline. Added `BaseAPIConnector.get_text` (extracted the shared retry loop
+  into `_get`) so CSV feeds inherit the same backoff/degradation as JSON ones. `firms_api_key` added to
+  `core/config.py` + `.env.example`.
+
+- **Tests** (`tests/realtime/test_overlay_and_firms.py`, +5): the overlay maps `temperature`→
+  `temp_anomaly_c` with the offset and drops no mapped field; a hotter Kalman mean yields a hotter MC
+  input; the FIRMS CSV parses into observations (confidence→std, malformed row skipped); the key-free
+  offline fallback; graceful degradation on a FIRMS 503.
+
+### What Worked
+- **Localizing the vocabulary bridge at the one boundary that needs it.** Kalman/Bayesian speak absolute
+  values; the MC `WorldState` speaks anomalies. `_overlay_state` is exactly where they meet, so the map +
+  offset live there — no churn to the connectors, Bayesian profiles, or the EMA state path.
+- **Broadcaster as a thin fan-out over the *existing* `LiveClimateStream`.** No pipeline rewrite — wrap
+  the already-working `frames()` generator and multiplex it. Smallest diff that makes the engine singular.
+- **Reusing the unchanged `normalize()` by shaping `fetch()` output.** The FIRMS CSV parser emits the
+  same `{detections:[...]}` dict the offline path already produced, so only `fetch` changed.
+
+### What Didn't Work
+- **Matching the old S23 demo numbers (risk 77 → 93).** Those were produced by the *broken* overlay
+  (wind + reweighting only). With temperature now driving the MC the curve legitimately changes
+  (76.5 → 91.3); chasing the old figures would mean re-breaking the fix. Numbers are correct, not equal.
+- **Overlaying the absolute temperature straight into `temp_anomaly_c`.** Without the −22 °C offset the
+  log-odds saturate (`expit(−1.5 + 0.55·24 + …) ≈ 1`) and risk pins at ~100 from tick 0 — no escalation
+  room. The offset is a deliberate calibration knob, not a hidden constant (flagged `ponytail:` for S26).
+
+### Next Steps (Session 26 — Model Calibration on Historical Data — pick up here)
+- **Calibrate against real FIRMS labels.** Replace the illustrative `WildfireHazardModel` coefficients
+  and the hand-set `KALMAN_TO_WORLD` climatology offset / `default_scenario_profiles` with values fit to
+  historical FIRMS active-fire outcomes (the `models/calibration.py` `reliability_curve` /
+  `fit_recalibration` stubs from S8 are waiting). Wire per-cell climatology so the temperature offset is
+  data-driven, not a global −22 °C.
+- **Multi-region / per-cell beliefs.** Lift the single-belief `ponytail:` in `ContinuousPipeline` to
+  `dict[CellId, ...]` so FIRMS detections across Liguria's grid each drive their own forecast — then map
+  more Kalman variables (humidity→?, drought→rainfall) once their semantics are calibrated.
+- **End-to-end SSE test.** A test that hits `/api/v1/stream/v3/live` against the lifespan-started
+  broadcaster and asserts ≥1 frame parses, plus a client-disconnect dropping only that subscription.
+
 ---
 
 ## What Worked (decisions that succeeded — keep these)
