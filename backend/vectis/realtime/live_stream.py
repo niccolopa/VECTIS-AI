@@ -55,6 +55,17 @@ logger = get_logger(__name__)
 
 CELL_LABEL = "California_01"  # friendly name for the grid cell the California feeds map to
 
+# Open-Meteo refreshes hourly, so polling every few seconds just re-reads the same value.
+# Poll at a realistic cadence: often enough to feel live, rare enough not to hammer the API.
+LIVE_TICK_SECONDS = 30.0
+
+# Kalman process-noise calibration for *real* data. The default rate is tuned for fast mock
+# swings; steady hourly weather under it drives the gain → 0 and the risk flatlines. A larger
+# rate lets the filter keep tracking genuine hourly changes (alive) while still smoothing
+# sensor jitter (not erratic). ponytail: hand-tuned for ~30–60 s ticks; widen if the real
+# feed proves noisier than expected.
+_LIVE_PROCESS_NOISE_RATE = 5e-3
+
 
 # ── fluctuating mock feeds — the engine of the "live" feeling ─────────────────
 # Each reading is a baseline + a sine wave + a faster, incommensurate ripple, so the
@@ -158,7 +169,7 @@ class LiveClimateStream:
         satellite: BaseAPIConnector | None = None,
     ) -> None:
         self._store: MemoryStateStore[KalmanCellState] = MemoryStateStore()
-        kalman = KalmanStateUpdater(self._store)
+        kalman = KalmanStateUpdater(self._store, process_noise_rate=_LIVE_PROCESS_NOISE_RATE)
         bayesian = ContinuousBayesianUpdater(
             default_scenario_profiles(),
             ScenarioPriors(
@@ -200,7 +211,7 @@ class LiveClimateStream:
         return self._pipeline
 
     async def frames(
-        self, *, ticks: int | None = None, tick_seconds: float = 1.5
+        self, *, ticks: int | None = None, tick_seconds: float = LIVE_TICK_SECONDS
     ) -> AsyncIterator[dict[str, Any]]:
         """Drive the pipeline and yield one JSON-serializable frame per tick.
 
@@ -286,7 +297,7 @@ class LiveStreamBroadcaster:
     single global loop or any other viewer.
     """
 
-    def __init__(self, stream: LiveClimateStream, *, tick_seconds: float = 1.5) -> None:
+    def __init__(self, stream: LiveClimateStream, *, tick_seconds: float = LIVE_TICK_SECONDS) -> None:
         self._stream = stream
         self._tick_seconds = tick_seconds
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
