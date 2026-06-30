@@ -29,12 +29,12 @@ export function LiveIntelligencePage() {
       <div className="space-y-4">
         <LiveIntelligenceHeader frame={latest} connected={connected} />
 
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <div className="space-y-4 xl:col-span-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="space-y-4 lg:col-span-2">
             <LiveRiskMap frame={latest} connected={connected} />
             <RiskEvolutionTimeline points={timeline} live={connected} />
           </div>
-          <div className="space-y-4 xl:col-span-1">
+          <div className="space-y-4 lg:col-span-1">
             <ProbabilityBars posterior={latest?.posterior ?? {}} />
             <EventFeed events={events} />
           </div>
