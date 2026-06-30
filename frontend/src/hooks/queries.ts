@@ -2,12 +2,13 @@
 // Server state (caching, loading/error, refetch, invalidation) lives here so
 // pages stay declarative and never call fetch directly.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 import { analysesApi, type RunAnalysisInput } from "@/services/analyses";
 import { catalogApi } from "@/services/catalog";
 import { datasetsApi } from "@/services/datasets";
 import { qk } from "@/services/queryKeys";
-import { useSelectionStore } from "@/stores/selectionStore";
+import { DEFAULT_REGION, useSelectionStore } from "@/stores/selectionStore";
 
 export function useHealth() {
   return useQuery({
@@ -19,7 +20,22 @@ export function useHealth() {
 }
 
 export function useRegions() {
-  return useQuery({ queryKey: qk.regions, queryFn: catalogApi.regions });
+  const query = useQuery({ queryKey: qk.regions, queryFn: catalogApi.regions });
+  const regionKey = useSelectionStore((s) => s.regionKey);
+  const setRegion = useSelectionStore((s) => s.setRegion);
+
+  // Failsafe: if the persisted region (e.g. stale localStorage from an older
+  // build) is not in the backend list, fall back to the default — or the first
+  // available — so we never render/fetch a region the backend doesn't know.
+  useEffect(() => {
+    const regions = query.data;
+    if (!regions || regions.length === 0) return;
+    if (regions.some((r) => r.key === regionKey)) return;
+    const fallback = regions.find((r) => r.key === DEFAULT_REGION) ?? regions[0];
+    setRegion(fallback.key);
+  }, [query.data, regionKey, setRegion]);
+
+  return query;
 }
 
 export function useAnalyses(limit = 20) {
