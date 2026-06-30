@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     llm_model: str = "claude-opus-4-8"
     llm_fast_model: str = "claude-haiku-4-5"
 
+    # --- Real-time connectors ---
+    # NASA FIRMS "MAP_KEY" for the active-fire area API. Empty → the satellite connector
+    # serves deterministic offline detections, so a fresh clone runs with no key.
+    firms_api_key: str = ""
+
     # --- Data / ML ---
     data_dir: Path = _REPO_ROOT / "data"
     artifacts_dir: Path = _BACKEND_ROOT / "artifacts"

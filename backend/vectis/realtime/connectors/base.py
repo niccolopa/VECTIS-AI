@@ -69,11 +69,19 @@ class BaseAPIConnector(ABC):
     # ----- resilient HTTP -------------------------------------------------------
 
     def get_json(self, url: str, *, params: dict[str, Any] | None = None) -> Any:
-        """GET ``url`` and return parsed JSON, retrying transient failures with backoff.
+        """GET ``url`` and return parsed JSON (see :meth:`_get` for the retry contract)."""
+        return self._get(url, params=params).json()
+
+    def get_text(self, url: str, *, params: dict[str, Any] | None = None) -> str:
+        """GET ``url`` and return the raw response body (for CSV feeds like NASA FIRMS)."""
+        return self._get(url, params=params).text
+
+    def _get(self, url: str, *, params: dict[str, Any] | None = None) -> httpx.Response:
+        """GET ``url`` with exponential backoff, returning the successful response.
 
         Backoff is ``backoff_base * 2**attempt`` seconds. Timeouts, connection errors,
-        and 5xx are retried; 4xx and JSON-decode errors fail fast. Raises
-        :class:`ConnectorError` if every attempt fails.
+        and 5xx are retried; 4xx fails fast. Raises :class:`ConnectorError` if every
+        attempt fails.
         """
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
@@ -87,7 +95,7 @@ class BaseAPIConnector(ABC):
                         response=response,
                     )
                 response.raise_for_status()  # 4xx -> raise, not retried
-                return response.json()
+                return response
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
                 if status < 500:
