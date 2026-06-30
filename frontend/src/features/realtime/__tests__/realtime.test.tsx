@@ -35,6 +35,10 @@ function makeFrame(tick: number): V3Frame {
     temp_delta: 1.0,
     posterior: { baseline: 0.2, hotter_drier: 0.7, extreme_wind: 0.1 },
     events: [makeEvent(tick)],
+    hotspots: [
+      { lat: 44.4, lon: 8.9, frp: 30, place: "Liguria, IT" },
+      { lat: 37.75, lon: -120.5, frp: 24, place: "California, US" },
+    ],
     report_id: null,
     report: null,
   };
@@ -93,8 +97,8 @@ describe("real-time components render with continuous mock data", () => {
     expect(container.querySelector(".recharts-responsive-container")).toBeTruthy();
   });
 
-  it("LiveRiskMap renders the map card without crashing", () => {
+  it("LiveRiskMap renders the global hotspot count without crashing", () => {
     renderWithProviders(<LiveRiskMap frame={frame} connected />);
-    expect(screen.getByText(/Live · 75\/100/)).toBeInTheDocument();
+    expect(screen.getByText(/Live · 2 active hotspots/)).toBeInTheDocument();
   });
 });

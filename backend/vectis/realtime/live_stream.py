@@ -258,6 +258,17 @@ class LiveClimateStream:
             "temp_delta": temp_mean - prev_temp,
             "posterior": dict(result.posterior),
             "events": [_event_view(e) for e in events],
+            # Worldwide active-fire detections this tick — the global map plots these.
+            "hotspots": [
+                {
+                    "lat": e.location.lat,
+                    "lon": e.location.lon,
+                    "frp": round(float(e.payload["frp"]), 1),
+                    "place": str(e.payload.get("place", "")),
+                }
+                for e in events
+                if "frp" in e.payload
+            ],
             "report_id": report.report_id if report else None,
             "report": new_report,
         }

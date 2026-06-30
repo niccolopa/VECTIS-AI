@@ -17,6 +17,14 @@ export interface V3Event {
   observed_at: string; // ISO
 }
 
+/** A worldwide active-fire detection (FIRMS) for the global map. */
+export interface V3Hotspot {
+  lat: number;
+  lon: number;
+  frp: number; // fire radiative power
+  place: string; // human label, e.g. "California, US"
+}
+
 /** One tick of the continuous pipeline. */
 export interface V3Frame {
   tick: number;
@@ -33,6 +41,7 @@ export interface V3Frame {
   temp_delta: number; // change vs previous tick
   posterior: Record<string, number>; // scenario id → probability (sums to 1)
   events: V3Event[]; // raw events that drove this tick
+  hotspots: V3Hotspot[]; // worldwide active-fire detections this tick
   report_id: string | null;
   report: DecisionIntelligenceReport | null; // present only when freshly generated
 }

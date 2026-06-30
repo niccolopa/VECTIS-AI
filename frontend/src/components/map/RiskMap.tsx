@@ -4,17 +4,34 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { mapRiskRamp } from "@/utils/risk";
 import type { CellRisk, RegionInfo } from "@/types/api";
 
-// Self-contained dark basemap: no tile server, no API key — the console renders
-// fully offline. Geographic context comes from the risk cells themselves.
+// Real-world dark basemap from CARTO's free raster tiles — no API key required, so the
+// console shows actual geography (continents, coastlines) under the risk cells and reads
+// as a global platform. If the tiles can't load (offline), the dark background shows
+// through and the risk cells still render.
 const DARK_STYLE: StyleSpecification = {
   version: 8,
-  sources: {},
-  layers: [{ id: "bg", type: "background", paint: { "background-color": "#0a0e14" } }],
+  sources: {
+    basemap: {
+      type: "raster",
+      tiles: [
+        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+      ],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors © CARTO",
+    },
+  },
+  layers: [
+    { id: "bg", type: "background", paint: { "background-color": "#0a0e14" } },
+    { id: "basemap", type: "raster", source: "basemap", paint: { "raster-opacity": 0.85 } },
+  ],
 };
 
 interface Props {
   region: RegionInfo;
   cells: CellRisk[];
+  zoom?: number;
   selectedCellId?: string | null;
   onSelectCell?: (cellId: string) => void;
 }
@@ -31,7 +48,7 @@ function toGeoJSON(cells: CellRisk[]) {
   };
 }
 
-export function RiskMap({ region, cells, selectedCellId, onSelectCell }: Props) {
+export function RiskMap({ region, cells, zoom = 7.4, selectedCellId, onSelectCell }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MlMap | null>(null);
   const onSelect = useRef(onSelectCell);
@@ -44,7 +61,7 @@ export function RiskMap({ region, cells, selectedCellId, onSelectCell }: Props) 
       container: container.current,
       style: DARK_STYLE,
       center: [region.center.lon, region.center.lat],
-      zoom: 7.4,
+      zoom,
       attributionControl: false,
     });
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
@@ -53,7 +70,7 @@ export function RiskMap({ region, cells, selectedCellId, onSelectCell }: Props) 
       m.remove();
       map.current = null;
     };
-  }, [region.center.lat, region.center.lon]);
+  }, [region.center.lat, region.center.lon, zoom]);
 
   // Render / update the risk layer when cells change.
   useEffect(() => {
