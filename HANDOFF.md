@@ -4,7 +4,15 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-06-30** · End of **Session 26** (Global Frontend Expansion & UI Polish —
+Last updated: **2026-06-30** · End of **Session 27** (Global Frontend Hard Reset & UI Polish —
+made the console read as one cohesive global tactical platform on a standard laptop: the Live
+Intelligence grid now breaks at `lg` (was `xl`) so it stays two-column on 1080p, the live map grew
+to 450px and frames the Atlantic at zoom 1.5 (Americas + Europe/Africa in view), the legacy V1
+Liguria 240-cell grid was retired from the Maps and Climate Risk Intelligence pages in favour of the
+shared global basemap, the remaining "Liguria, Italy" labels in the mock fixtures became global, and
+the 3D overview globe lost its hardcoded Italian province dots to spin as a generic wireframe planet.
+**Build + 14 frontend tests pass.** See the Session 27 section below.) · End of **Session 26**
+(Global Frontend Expansion & UI Polish —
 aligned the React console with the global V3 backend: scrubbed the V1 "Liguria, Italy / 240
 cells" hardcodes from the headers/sidebars, fixed the flatlining demo feeds (they now fluctuate
 with sine waves around a moderate baseline so risk breathes between HIGH and SEVERE instead of
@@ -57,6 +65,58 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 27 — Global Frontend Hard Reset & UI Polish
+
+**Goal**: Make the frontend read as one cohesive *global tactical console* on a standard laptop.
+Three concrete defects from the S26 dump: (1) the Live Intelligence layout stacked vertically on
+1080p because the grid only went multi-column at `xl` (≥1280px); (2) the live map was a squashed
+`h-72` with a flat default view; (3) the **legacy V1 pages still rendered the Liguria 240-cell
+grid** (Maps, Climate Risk Intelligence) plus a Liguria-pinned 3D globe — breaking the global
+illusion the V3 backend earned.
+
+**Current Progress**: Session 27 (**COMPLETE**). Three atomic commits, one per step. `tsc -b` +
+`vite build` clean, **14 Vitest pass**.
+
+- **Step 1 — live layout & map** (`feat(frontend): widen the live console for laptops and frame the
+  globe`). `pages/LiveIntelligencePage.tsx` grid breakpoints `xl:`→`lg:` (two-column from 1024px).
+  `features/realtime/LiveRiskMap.tsx` height `h-72`→`h-[450px]`. New shared
+  `components/map/world.ts` exporting the `WORLD` `RegionInfo` (Atlantic centre `lat 20 / lon −30`)
+  + `WORLD_ZOOM = 1.5`, replacing the local copy LiveRiskMap had defined inline.
+- **Step 2 — retire the legacy grid** (`refactor(frontend): retire the legacy regional grid for a
+  global view`). `pages/MapsPage.tsx` and `pages/RiskIntelligencePage.tsx` no longer plot
+  `report.cell_risks` (the dense Liguria grid); both render the shared global basemap
+  (`<RiskMap region={WORLD} cells={[]} />`) with a small "global view" overlay. Risk Intelligence
+  keeps its region selector, **Run analysis** action, and the textual driver/detail panel — only the
+  cell-grid map layer was removed. Scrubbed the three remaining `"Liguria, Italy"` strings in
+  `test/fixtures.ts` → `"Global View"` (area labels) and the summary sentence → "Global monitoring…";
+  realigned the two page tests that asserted the old label / map-prompt copy.
+- **Step 3 — globalize the 3D globe** (`refactor(frontend): make the 3D globe a generic global
+  widget`). `components/three/GlobeWidget.tsx` dropped the four hardcoded Liguria province centroids
+  + the region-facing orientation; it now spins as a plain neon wireframe planet (graticule reads as
+  a global grid).
+
+**What Worked**:
+- **Extracting `WORLD` to one module** let all three global map surfaces (live console + two legacy
+  pages) share one Atlantic-framed `RegionInfo` — the legacy pages went global by passing it to the
+  *existing* `RiskMap` with an empty cell array. No new map component, smallest diff.
+- **Keeping Risk Intelligence functional.** Rather than a dead "coming soon" placeholder, dropping
+  only the cell layer preserved the run-analysis → drivers/actions flow while removing the regional
+  grid that broke the illusion.
+
+**What Didn't Work / Notes**:
+- The "Liguria, Italy" the user sees in the **running app comes from the backend**, not the frontend
+  — the only frontend copies were the MSW *test* fixtures (the live app has no browser mocks; all
+  data is fetched from FastAPI). Scrubbing the fixtures keeps the test suite on the global framing,
+  but a fully global *live* app depends on the backend's region/area labels.
+- `RiskLegend` was removed from the two legacy pages along with the cells — a legend with no cells to
+  key is noise. It still ships for any future cell-bearing view.
+
+**Next Steps**: Backend region labels are now the last "Liguria" the user can actually see in the
+live app; a future session could globalize the backend's default region set / area labels. Frontend
+bundle is still ~2.3 MB (three.js + maplibre) — code-splitting remains the open optimization.
 
 ---
 
