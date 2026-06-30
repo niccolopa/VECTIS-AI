@@ -2,8 +2,9 @@
 
 Where ``demo_v2`` fires *one* shot through the pipeline, this drives the V3
 :class:`~vectis.realtime.pipeline.ContinuousPipeline` as a **living system**: mock
-weather + satellite feeds emit fresh JSON every tick (temperature climbing, drought
-deepening, wind picking up), the pipeline folds each reading into its Kalman belief,
+weather + satellite feeds emit fresh JSON every tick (temperature, drought, and wind
+fluctuating up and down around a fire-season baseline), the pipeline folds each reading
+into its Kalman belief,
 re-runs the Bayesian posterior, and — when the risk moves materially — convenes the
 decision board. The terminal redraws a tactical console each tick so you watch the
 risk *shift* in real time.
@@ -35,8 +36,8 @@ from vectis.realtime.forecasting.kalman.state_model import KalmanCellState
 from vectis.realtime.forecasting.kalman.updater import KalmanStateUpdater
 from vectis.realtime.ingestion.manager import IngestionManager
 from vectis.realtime.live_stream import (
-    EscalatingSatelliteConnector,
-    RampingWeatherConnector,
+    GlobalSatelliteConnector,
+    OscillatingWeatherConnector,
 )
 from vectis.realtime.pipeline import (
     _DRIVER_LABELS,
@@ -123,8 +124,8 @@ def _build(*, n_iterations: int, seed: int, llm: LLMProvider | None) -> _LivePip
         risk_change_threshold=2.0,
     )
 
-    weather = RampingWeatherConnector()
-    satellite = EscalatingSatelliteConnector()
+    weather = OscillatingWeatherConnector()
+    satellite = GlobalSatelliteConnector()
     manager = IngestionManager([weather, satellite])
     producer = EventProducer(manager, broker, topic=DEFAULT_TOPIC)
     # Both feeds report at Liguria's centroid → the same grid cell.

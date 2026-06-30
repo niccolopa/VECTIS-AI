@@ -1,8 +1,9 @@
 """The V3 live demo must produce a *living* stream, not a static report.
 
-One headless run asserts the system actually evolves: as the mock feeds get hotter
-and drier, risk climbs, the scenario belief swings toward ``hotter_drier``, and the
-decision board re-convenes when risk moves materially.
+One headless run asserts the system actually evolves: as the fluctuating feeds rise and
+fall around a fire-season baseline, risk moves up AND down (it does not ramp to a 100%
+flatline), the Kalman state grows more confident as data accumulates, and the decision
+board re-convenes when risk moves materially.
 """
 
 from __future__ import annotations
@@ -23,13 +24,11 @@ def test_stream_is_alive() -> None:
     frames = _run(11)
     assert len(frames) == 11
 
-    # Risk rises monotonically-ish and ends materially higher than it began.
-    assert frames[-1].risk > frames[0].risk + 5.0
-
-    # The belief swings from baseline toward hotter_drier as the heat/drought build.
-    assert frames[0].posterior["hotter_drier"] < 0.05
-    assert frames[-1].posterior["hotter_drier"] > 0.5
-    assert frames[-1].driver != frames[0].driver  # primary driver label flips
+    # The fluctuating feeds make risk move up AND down — never a flatline at the ceiling.
+    risks = [f.risk for f in frames]
+    assert any(b > a + 0.5 for a, b in zip(risks, risks[1:], strict=False)), "risk never rises"
+    assert any(b < a - 0.5 for a, b in zip(risks, risks[1:], strict=False)), "risk never falls (flatlining)"
+    assert max(risks) - min(risks) > 5.0, "risk barely moves"
 
     # Kalman variance shrinks as corroborating data accumulates (more confident state).
     assert frames[-1].temp_var < frames[0].temp_var

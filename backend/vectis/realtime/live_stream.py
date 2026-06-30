@@ -5,18 +5,19 @@ stdout. This module exposes the *same* living pipeline as a stream of JSON-seria
 **frames** so the React console can subscribe over Server-Sent Events and animate the
 risk shifting in real time.
 
-    IngestionManager(ramping feeds) → EventProducer → broker
+    IngestionManager(fluctuating feeds) → EventProducer → broker
         → ContinuousPipeline (Kalman → Bayesian → Monte Carlo → Decision Report)
         → frame dict  (risk · Kalman state · posterior · raw events · report id)
 
-Each connection wires its own pipeline, so every viewer watches the escalation from a
-calm baseline. Offline and deterministic: no API key, no network — the ramping feeds
-synthesize an escalating fire day, the deterministic engines produce every number.
+Offline and deterministic: no API key, no network — the mock feeds synthesize a live
+fire season (readings rise *and* fall around an elevated baseline), the deterministic
+engines produce every number.
 """
 
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -51,13 +52,28 @@ logger = get_logger(__name__)
 CELL_LABEL = "Liguria_01"  # friendly name for the grid cell the Liguria feeds map to
 
 
-# ── ramping mock feeds — the engine of the "live" feeling ─────────────────────
-class RampingWeatherConnector(WeatherAPIConnector):
-    """Offline weather feed whose readings drift hotter & drier on every poll.
+# ── fluctuating mock feeds — the engine of the "live" feeling ─────────────────
+# Each reading is a baseline + a sine wave + a faster, incommensurate ripple, so the
+# feeds rise AND fall through the moderate→severe bands instead of ramping to 100% and
+# flatlining. Pure trig (no RNG) → reproducible across viewers and test runs.
+def _wave(
+    t: int, *, base: float, amp: float, period: float, phase: float = 0.0, ripple: float = 0.0
+) -> float:
+    """Baseline + a primary sine of ``period`` ticks + an optional faster ripple."""
+    value = base + amp * math.sin(2 * math.pi * t / period + phase)
+    if ripple:
+        value += ripple * math.sin(2 * math.pi * t / 5.3 + phase * 1.7)
+    return value
 
-    Each ``fetch`` advances a tick: temperature climbs, humidity falls, wind rises,
-    and a drought index deepens — a plausible escalating fire day. Drought has no
-    slot in the base weather payload, so we emit it as an extra normalized event.
+
+class OscillatingWeatherConnector(WeatherAPIConnector):
+    """Offline weather feed whose readings fluctuate around an elevated fire-season baseline.
+
+    Each ``fetch`` advances a tick and returns temperature/humidity/wind/drought that
+    rise and fall on differing periods (humidity anti-correlated with temperature), so
+    the live risk and confidence curves breathe up and down like a real feed rather than
+    ramping to a flatline. Drought has no slot in the base weather payload, so we emit it
+    as an extra normalized event.
     """
 
     def __init__(self, **kwargs: Any) -> None:
@@ -67,11 +83,15 @@ class RampingWeatherConnector(WeatherAPIConnector):
     def fetch(self) -> dict[str, Any]:
         t = self._tick
         self._tick += 1
+        # Baselines kept moderate: temp_anomaly_c = temperature − 22 (see KALMAN_TO_WORLD),
+        # and the wildfire logistic saturates past ~+6 °C anomaly. Centering temperature near
+        # 25 °C (anomaly ~3) keeps the swing inside the moderate→severe band, not pinned at 100.
         return {
-            "temperature": 24.0 + 2.1 * t,            # heat anomaly building
-            "humidity": max(8.0, 55.0 - 4.5 * t),     # air drying out
-            "wind": 12.0 + 2.5 * t,                   # wind freshening
-            "drought": min(0.95, 0.30 + 0.05 * t),    # drought index rising
+            "temperature": _wave(t, base=22.5, amp=5.0, period=11.0, ripple=1.2),
+            # phase=π → dry when hot
+            "humidity": max(8.0, _wave(t, base=45.0, amp=15.0, period=11.0, phase=math.pi, ripple=3.0)),
+            "wind": max(0.0, _wave(t, base=15.0, amp=8.0, period=8.0, phase=1.0, ripple=2.0)),
+            "drought": min(0.95, max(0.10, _wave(t, base=0.40, amp=0.20, period=17.0))),
         }
 
     def normalize(self, raw: dict[str, Any]) -> list[GlobalEvent]:
@@ -87,8 +107,23 @@ class RampingWeatherConnector(WeatherAPIConnector):
         return events
 
 
-class EscalatingSatelliteConnector(SatelliteAPIConnector):
-    """Offline FIRMS-style feed whose fire-radiative-power grows each poll."""
+class GlobalSatelliteConnector(SatelliteAPIConnector):
+    """Offline FIRMS-style feed: active-fire hotspots across the globe, fluctuating FRP.
+
+    Emits detections at fixed real-world locations (incl. the headline Liguria cell) whose
+    fire-radiative-power rises and falls each poll. The worldwide spread is what the global
+    map plots; the Liguria detection feeds the headline cell's hazard signal.
+    """
+
+    # (lat, lon, place, baseline FRP) — a plausible global fire footprint.
+    _HOTSPOTS: tuple[tuple[float, float, str, float], ...] = (
+        (44.41, 8.93, "Liguria, IT", 16.0),
+        (37.75, -120.50, "California, US", 28.0),
+        (-33.40, 150.30, "New South Wales, AU", 22.0),
+        (38.50, 23.60, "Attica, GR", 18.0),
+        (49.20, -123.10, "British Columbia, CA", 14.0),
+        (-9.50, -62.00, "Rondônia, BR", 20.0),
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -97,16 +132,17 @@ class EscalatingSatelliteConnector(SatelliteAPIConnector):
     def fetch(self) -> dict[str, Any]:
         t = self._tick
         self._tick += 1
-        return {
-            "detections": [
-                {
-                    "latitude": 44.41,
-                    "longitude": 8.93,
-                    "frp": 5.0 + 7.0 * t,
-                    "confidence": min(95, 60 + 5 * t),
-                }
-            ]
-        }
+        detections = [
+            {
+                "latitude": lat,
+                "longitude": lon,
+                "place": place,
+                "frp": max(0.0, _wave(t, base=frp, amp=frp * 0.6, period=9.0, phase=i, ripple=frp * 0.2)),
+                "confidence": 70 + int(20 * math.sin(2 * math.pi * t / 9.0 + i)),
+            }
+            for i, (lat, lon, place, frp) in enumerate(self._HOTSPOTS)
+        ]
+        return {"detections": detections}
 
 
 class LiveClimateStream:
@@ -152,8 +188,8 @@ class LiveClimateStream:
             risk_change_threshold=2.0,
         )
 
-        weather = RampingWeatherConnector()
-        satellite = EscalatingSatelliteConnector()
+        weather = OscillatingWeatherConnector()
+        satellite = GlobalSatelliteConnector()
         self._manager = IngestionManager([weather, satellite])
         self._producer = EventProducer(self._manager, broker, topic=DEFAULT_TOPIC)
         # Both feeds report at Liguria's centroid → the same grid cell.

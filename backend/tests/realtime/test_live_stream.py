@@ -45,6 +45,13 @@ def test_frames_are_json_and_well_formed() -> None:
     assert frames[1]["prev_risk"] == first["risk"]
 
 
+def test_risk_oscillates_and_does_not_flatline() -> None:
+    """The live risk must move up AND down — the fluctuating feeds must not ramp to a flatline."""
+    risks = [f["risk"] for f in _frames(24)]
+    assert any(b > a + 0.5 for a, b in zip(risks, risks[1:], strict=False)), "risk never rises"
+    assert any(b < a - 0.5 for a, b in zip(risks, risks[1:], strict=False)), "risk never falls (flatlining)"
+
+
 def test_report_attached_once_when_board_convenes() -> None:
     frames = _frames(6)
     # The board re-convenes on a material move; the full report rides exactly the
@@ -57,5 +64,6 @@ def test_report_attached_once_when_board_convenes() -> None:
 
 if __name__ == "__main__":
     test_frames_are_json_and_well_formed()
+    test_risk_oscillates_and_does_not_flatline()
     test_report_attached_once_when_board_convenes()
     print("ok")
