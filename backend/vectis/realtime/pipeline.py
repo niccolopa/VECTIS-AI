@@ -48,7 +48,10 @@ from vectis.simulation.probability.uncertainty import (
     confidence_from_entropy,
     posterior_mixture_risk,
 )
-from vectis.simulation.scenarios.generator import WildfireScenarioGenerator, liguria_wildfire_state
+from vectis.simulation.scenarios.generator import (
+    WildfireScenarioGenerator,
+    california_wildfire_state,
+)
 from vectis.simulation.schemas import (
     Scenario,
     ScenarioSet,
@@ -134,14 +137,14 @@ class ContinuousPipeline:
     """Orchestrate the continuous Live-Data → Decision-Report flow over a broker stream.
 
     All collaborators are injected so the pipeline is testable and the transport is
-    swappable; :func:`build_default_pipeline` wires the offline Liguria-wildfire defaults.
+    swappable; :func:`build_default_pipeline` wires the offline California-wildfire defaults.
 
     :param risk_change_threshold: minimum absolute move in headline risk (0–100) since the
         last report for a cell before the (expensive) decision board is re-run. Damps churn
         so the LLM board only fires on a material change.
 
     ponytail: one Bayesian belief + one base ``WorldState`` — correct for the single-region
-    (Liguria) demo. Per-cell beliefs become a ``dict[CellId, ...]`` when multi-region lands;
+    (California) demo. Per-cell beliefs become a ``dict[CellId, ...]`` when multi-region lands;
     the rest of the flow is already keyed by ``cell_id``.
     """
 
@@ -328,9 +331,9 @@ def build_default_pipeline(
     board: SimulationBoardService | None = None,
     n_iterations: int = 20_000,
     seed: int = 7,
-    region: str = "liguria",
+    region: str = "california",
 ) -> ContinuousPipeline:
-    """Wire the offline Liguria-wildfire pipeline with sensible defaults.
+    """Wire the offline California-wildfire pipeline with sensible defaults.
 
     Memory broker, a fresh Kalman store, the three-branch wildfire scenarios, and the
     V2 Monte Carlo engine + decision board (mock LLM by default → runs offline, no key).
@@ -346,7 +349,7 @@ def build_default_pipeline(
     )
     bayesian = ContinuousBayesianUpdater(profiles, priors)
 
-    base_state = liguria_wildfire_state(region)
+    base_state = california_wildfire_state(region)
     scenarios = WildfireScenarioGenerator().generate(base_state)
     config = SimulationConfig(n_iterations=n_iterations, seed=seed)
 

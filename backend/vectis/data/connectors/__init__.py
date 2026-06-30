@@ -1,6 +1,6 @@
 """Data connectors: pluggable sources of raw observations for a region.
 
-``SampleConnector`` (the default) reads the bundled, reproducible Liguria
+``SampleConnector`` (the default) reads the bundled, reproducible California
 dataset so VECTIS runs fully offline. Live connectors for NASA FIRMS, ERA5, and
 Copernicus are provided as opt-in stubs implementing the same interface.
 """

@@ -19,7 +19,7 @@ from vectis.streaming.updater import build_default_updater
 
 # ── Initialization / default state ───────────────────────────────────────────
 def test_twin_initializes_with_default_state():
-    twin = RegionTwin("liguria")
+    twin = RegionTwin("california")
     state = twin.get_current_state()
     assert isinstance(state, RegionState)
     assert state.temperature_anomaly == 2.0
@@ -29,7 +29,7 @@ def test_twin_initializes_with_default_state():
 
     # Risk is computed at construction (baseline run), priors at generator defaults.
     risk = twin.computed_risk_state
-    assert risk.region == "liguria"
+    assert risk.region == "california"
     assert 0.0 <= risk.risk <= 100.0
     assert risk.scenario_priors["hotter_drier"] == 0.3
 
@@ -62,7 +62,7 @@ def test_unrelated_observation_does_not_drift_stress():
 
 # ── Observation updates state AND triggers risk calculation ──────────────────
 def test_observation_updates_state_and_recomputes_risk():
-    twin = RegionTwin("liguria")
+    twin = RegionTwin("california")
     before = twin.computed_risk_state
 
     update = twin.update_from_observation(
@@ -85,30 +85,30 @@ def test_observation_updates_state_and_recomputes_risk():
 # ── Registry ─────────────────────────────────────────────────────────────────
 def test_state_manager_registers_and_retrieves_twins():
     manager = StateManager()
-    twin = RegionTwin("liguria")
+    twin = RegionTwin("california")
     manager.register(twin)
     assert manager.count == 1
-    assert manager.get("liguria") is twin
+    assert manager.get("california") is twin
     assert manager.get("atlantis") is None
 
-    manager.deregister("liguria")
+    manager.deregister("california")
     assert manager.count == 0
 
 
 # ── Streaming wiring (event → twin) ──────────────────────────────────────────
 def test_weather_alert_routes_into_the_twin():
     updater = build_default_updater()
-    before = updater.risk_state("liguria")
+    before = updater.risk_state("california")
 
     change = updater.process(
-        WeatherAlert(source="arpal", region="liguria", variable="temp_anomaly_c",
+        WeatherAlert(source="arpal", region="california", variable="temp_anomaly_c",
                      value=4.0, severity="critical")
     )
 
     assert change is not None
-    assert change.risk.region == "liguria"
+    assert change.risk.region == "california"
     assert change.risk.scenario_priors["hotter_drier"] > 0.3
     # The manager's twin now reflects the alert.
-    twin = updater.manager.get("liguria")
+    twin = updater.manager.get("california")
     assert twin.get_current_state().temperature_anomaly == 4.0
     assert before is not None and change.risk.risk >= before.risk

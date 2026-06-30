@@ -79,7 +79,7 @@ class StateOverrides(BaseModel):
 
 
 class WhatIfRequest(BaseModel):
-    twin_id: str = "liguria"
+    twin_id: str = "california"
     overrides: StateOverrides = Field(default_factory=StateOverrides)
     n_iterations: int | None = Field(default=None, ge=1, description="Override MC iterations.")
 

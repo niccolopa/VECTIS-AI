@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """VECTIS V2 — 1,000,000-scenario Monte Carlo stress test.
 
-Initializes the Liguria Digital Twin, triggers an observation, then forces the
+Initializes the California Digital Twin, triggers an observation, then forces the
 engine to run **1,000,000 iterations × 3 scenario branches = 3,000,000 trajectory
 evaluations** — single-thread vectorized NumPy vs. multiprocessing across cores —
 and reports wall-clock time, throughput, peak memory, and a cache demonstration.
@@ -33,7 +33,7 @@ from vectis.simulation.engine.runner import (  # noqa: E402
 from vectis.simulation.probability.bayesian import Observation  # noqa: E402
 from vectis.simulation.scenarios.generator import (  # noqa: E402
     WildfireScenarioGenerator,
-    liguria_wildfire_state,
+    california_wildfire_state,
 )
 from vectis.simulation.schemas import SimulationConfig  # noqa: E402
 
@@ -65,13 +65,13 @@ def main() -> None:
     print("VECTIS // MONTE CARLO STRESS TEST — 1,000,000 SCENARIOS".center(72))
     print("=" * 72)
 
-    # ── 1. Liguria twin + observation (the trigger) ─────────────────────────
+    # ── 1. California twin + observation (the trigger) ─────────────────────────
     _rule("SETUP")
-    state = liguria_wildfire_state()
+    state = california_wildfire_state()
     scenarios = WildfireScenarioGenerator().generate(state)
     n_branches = len(scenarios.scenarios)
     obs = Observation(variable="temp_anomaly_c", value=4.0, std=0.3)
-    print(f"[INFO] Liguria twin initialized · {n_branches} scenario branches.")
+    print(f"[INFO] California twin initialized · {n_branches} scenario branches.")
     print(f"[INFO] Observation triggered: {obs.variable}={obs.value} (heatwave).")
     print(f"[INFO] Workload: {N:,} iterations × {n_branches} branches "
           f"= {N * n_branches:,} trajectory evaluations.")

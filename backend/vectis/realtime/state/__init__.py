@@ -1,6 +1,6 @@
 """State — the continuously-estimated representation of the whole world.
 
-This is the living core of V3. Where V2 held one ``RegionTwin`` for Liguria, V3
+This is the living core of V3. Where V2 held one ``RegionTwin`` for California, V3
 maintains a **global state field**: for every active cell on a world grid, the
 current estimate of its physical variables *and the uncertainty around them* (mean +
 covariance), kept current by a streaming filter that never recomputes from scratch.

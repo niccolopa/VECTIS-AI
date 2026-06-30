@@ -52,7 +52,7 @@ class StreamEvent(BaseModel):
     event_id: str = Field(default_factory=_event_id)
     source: str = Field(description="Originating system/station identifier.")
     region: str = Field(
-        default="liguria", description="Digital-twin id this event is routed to."
+        default="california", description="Digital-twin id this event is routed to."
     )
     observed_at: datetime = Field(default_factory=_utcnow)
 

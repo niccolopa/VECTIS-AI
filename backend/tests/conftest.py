@@ -39,7 +39,7 @@ def _prepare_environment() -> None:
     from vectis.scripts.train import train_region
 
     generate()
-    train_region("liguria")
+    train_region("california")
 
 
 @pytest.fixture
@@ -60,5 +60,5 @@ def pipeline_result():
     from vectis.data.pipeline.runner import run_pipeline
     from vectis.data.regions import get_region
 
-    raw = get_connector("sample").fetch(get_region("liguria"))
+    raw = get_connector("sample").fetch(get_region("california"))
     return run_pipeline(raw, require_label=True)

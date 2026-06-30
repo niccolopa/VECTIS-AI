@@ -2,7 +2,7 @@
 
 A **Digital Twin** is the business-logic object that *uses* the V2 math engines.
 The engines (``simulation/``) are generic calculators — they know nothing about
-"Liguria" or "wildfire". A twin owns a region's (or, later, a market's) physical
+"California" or "wildfire". A twin owns a region's (or, later, a market's) physical
 **state**, evolves it deterministically as observations arrive
 (``transitions/``), and asks the probabilistic engines to compute its future
 **risk state**.

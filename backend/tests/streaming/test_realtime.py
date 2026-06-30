@@ -115,7 +115,7 @@ def test_ingest_broadcasts_to_connected_websocket(client):
         client.post("/api/v1/stream/ingest", json=_strong_hotter_event(value=4.5))
         message = ws.receive_json()
         assert message["type"] == "state_changed"
-        assert message["risk"]["region"] == "liguria"
+        assert message["risk"]["region"] == "california"
         assert 0.0 <= message["risk"]["confidence"] <= 1.0
 
 

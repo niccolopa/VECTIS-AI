@@ -175,7 +175,7 @@ outcome backlog exists.
 
 **Zero-LLM, vectorized.** Pure `numpy`/`scipy`; updating 1,000 observations takes
 well under a millisecond (one vectorized `norm.logpdf` per observation across the
-scenario set). The Liguria use case (`python -m vectis.simulation.probability.bayesian`):
+scenario set). The California use case (`python -m vectis.simulation.probability.bayesian`):
 a +3.5 °C temperature spike moves `hotter_drier` from prior 0.30 to posterior 0.92,
 fire risk 88 → 94 / 100, confidence 6% → 71%.
 
@@ -267,8 +267,8 @@ transition, and the scenarios and the same engines model a different entity — 
 
 **Wired into streaming.** `RealTimeUpdater` (Session 9) is now a thin router:
 debounce → `StateManager.get(region)` → `twin.update_from_observation` → wrap the
-`TwinUpdate` in a `StateChange` for broadcast. The Liguria twin is registered at
-startup; a `WeatherAlert` for "liguria" flows straight into it.
+`TwinUpdate` in a `StateChange` for broadcast. The California twin is registered at
+startup; a `WeatherAlert` for "california" flows straight into it.
 
 ---
 
@@ -319,13 +319,13 @@ owns arithmetic.
 ## 9. End-to-end demo (Session 12)
 
 Every V2 layer now runs as one offline, deterministic script:
-`python -m vectis.scripts.demo_v2` (or `python scripts/run_demo_liguria.py`, or
+`python -m vectis.scripts.demo_v2` (or `python scripts/run_demo_california.py`, or
 `make demo-v2`). It drives the full pipeline and renders it as a tactical
 intelligence terminal (pure stdlib — no `rich`/dependency):
 
 ```
 Simulated weather alert (heatwave + drought)
-   → RealTimeUpdater  → Liguria RegionTwin deterministic transition
+   → RealTimeUpdater  → California RegionTwin deterministic transition
    → Monte Carlo (100,000 scenarios)  → Bayesian posterior update
    → LangGraph Analysis Board  → Decision Intelligence Report
 ```
@@ -336,7 +336,7 @@ Monte Carlo → Bayesian belief shift → recomputed risk), ANALYZE (convene the
 board), REPORT (the boxed `DecisionIntelligenceReport`: BLUF, key metrics,
 executive summary, scenario projections, blue/gold debate, red-team critique).
 
-For the Liguria use case it shows a calm baseline (~45/100 MODERATE) jump to
+For the California use case it shows a calm baseline (~45/100 MODERATE) jump to
 ~98/100 SEVERE as the heatwave+drought drive the posterior onto the *hotter &
 drier* branch — the math and the analyst narrative side by side, Math Firewall
 intact (numbers = engine, prose = analysts). Runtime ~1 s, offline, key-free.

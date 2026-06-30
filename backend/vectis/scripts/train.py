@@ -20,7 +20,7 @@ from vectis.scripts.generate_sample import generate
 log = get_logger(__name__)
 
 
-def train_region(region_key: str = "liguria") -> None:
+def train_region(region_key: str = "california") -> None:
     region = get_region(region_key)
     connector = get_connector("sample")
     try:
@@ -42,7 +42,7 @@ def train_region(region_key: str = "liguria") -> None:
 
 
 def main() -> None:
-    region = sys.argv[1] if len(sys.argv) > 1 else "liguria"
+    region = sys.argv[1] if len(sys.argv) > 1 else "california"
     train_region(region)
 
 

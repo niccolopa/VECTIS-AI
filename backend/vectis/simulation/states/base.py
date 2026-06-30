@@ -34,7 +34,7 @@ class StateEstimator(ABC):
         """Build the digital-twin state for ``region`` as of now.
 
         Args:
-            region: Region key (e.g. ``"liguria"``), matching V1's region vocabulary.
+            region: Region key (e.g. ``"california"``), matching V1's region vocabulary.
 
         Returns:
             A :class:`WorldState` whose variables carry value + uncertainty.

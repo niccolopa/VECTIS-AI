@@ -58,7 +58,7 @@ async def ingest_event(
 
 
 @router.get("/state")
-def current_state(request: Request, region: str = "liguria") -> RiskState:
+def current_state(request: Request, region: str = "california") -> RiskState:
     """The latest real-time risk picture for a region (synchronous read)."""
     state = get_updater(request).risk_state(region)
     if state is None:

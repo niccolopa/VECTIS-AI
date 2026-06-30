@@ -103,7 +103,7 @@ sequenceDiagram
     Src->>API: POST event (temp +4°C)
     API-->>Src: 202 Accepted (never blocks)
     API->>U: BackgroundTask
-    U->>T: route to "liguria" twin
+    U->>T: route to "california" twin
     T->>T: Bayesian update of scenario beliefs
     alt belief shifted materially
         T->>E: re-run Monte Carlo (cached)

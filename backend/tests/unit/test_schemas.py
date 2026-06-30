@@ -31,7 +31,7 @@ def test_driver_from_shap_direction() -> None:
 
 def test_decision_report_computes_band() -> None:
     report = DecisionReport(
-        id="abc", region="liguria", area_label="Liguria, Italy",
+        id="abc", region="california", area_label="California, USA",
         risk_score=80, confidence=0.8, summary="x",
         critic_review=CriticReview(approved=True), model_card_ref="ref",
     )
@@ -41,7 +41,7 @@ def test_decision_report_computes_band() -> None:
 def test_decision_report_rejects_out_of_range_score() -> None:
     with pytest.raises(ValidationError):
         DecisionReport(
-            id="abc", region="liguria", area_label="L", risk_score=150,
+            id="abc", region="california", area_label="L", risk_score=150,
             confidence=0.8, summary="x",
             critic_review=CriticReview(approved=True), model_card_ref="ref",
         )

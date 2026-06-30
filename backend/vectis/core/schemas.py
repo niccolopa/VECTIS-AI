@@ -219,7 +219,7 @@ class AgentTrace(BaseModel):
 class AnalysisRequest(BaseModel):
     """Inbound request to run an analysis."""
 
-    region: str = Field(default="liguria", description="Region key, e.g. 'liguria'.")
+    region: str = Field(default="california", description="Region key, e.g. 'california'.")
     window_days: int = Field(default=30, ge=1, le=365)
 
 

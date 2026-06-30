@@ -57,7 +57,7 @@ class ClimateTransition(StateTransition):
       moisture relieves it. Only recomputed when a *driver* (temp/humidity) moved,
       so an unrelated observation can't drift the stress index.
 
-    ``K_TEMP``/``K_HUM`` are balanced so the Liguria default state (≈ +2 °C anomaly,
+    ``K_TEMP``/``K_HUM`` are balanced so the California default state (≈ +2 °C anomaly,
     20 % humidity) sits at equilibrium (Δstress = 0). ponytail: hand-tuned heuristic
     — replace coefficients with a fitted model once real labels exist.
     """

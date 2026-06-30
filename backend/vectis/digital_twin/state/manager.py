@@ -2,7 +2,7 @@
 
 The :class:`StateManager` is a thin, thread-safe dictionary of ``twin_id ->
 DigitalTwin``. It is the lookup the streaming layer uses to route an incoming
-observation to the right twin (e.g. a Liguria weather alert → the Liguria twin).
+observation to the right twin (e.g. a California weather alert → the California twin).
 
 Deliberately a memory store, not a DB (per the Session-10 brief). The interface —
 ``register`` / ``get`` / ``all`` / ``count`` — is what a future Redis- or

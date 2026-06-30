@@ -173,7 +173,7 @@ class GaussianBayesianUpdater(BayesianUpdater):
 
 
 if __name__ == "__main__":
-    # Liguria wildfire update use case (Session 8). Pure math, no LLM.
+    # California wildfire update use case (Session 8). Pure math, no LLM.
     from vectis.simulation.engine.runner import VectorizedMonteCarloEngine
     from vectis.simulation.probability.uncertainty import (
         posterior_mixture_risk,
@@ -181,11 +181,11 @@ if __name__ == "__main__":
     )
     from vectis.simulation.scenarios.generator import (
         WildfireScenarioGenerator,
-        liguria_wildfire_state,
+        california_wildfire_state,
     )
     from vectis.simulation.schemas import SimulationConfig
 
-    state = liguria_wildfire_state()
+    state = california_wildfire_state()
     prior = WildfireScenarioGenerator().generate(state)
 
     # New incoming data: a weather station reports a temperature spike to +3.5 °C,
@@ -202,7 +202,7 @@ if __name__ == "__main__":
     cfg = SimulationConfig(n_iterations=50_000, seed=7)
     outcomes = {o.scenario_id: o.risk.mean for o in engine.run(state, prior, cfg).outcomes}
 
-    print("Liguria wildfire — Bayesian update")
+    print("California wildfire — Bayesian update")
     print(f"  observation: temp_anomaly_c = {observation.value} °C (est. mean 2.0)\n")
     print("  scenario        prior  ->  posterior")
     for ps, qs in zip(prior.scenarios, posterior.scenarios, strict=True):

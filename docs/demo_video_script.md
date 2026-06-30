@@ -80,7 +80,7 @@ red-team critique.
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/stream/ingest \
   -H "Content-Type: application/json" \
-  -d '{"kind":"weather_alert","source":"demo","region":"liguria","variable":"temp_anomaly_c","value":4.0,"severity":"critical"}'
+  -d '{"kind":"weather_alert","source":"demo","region":"california","variable":"temp_anomaly_c","value":4.0,"severity":"critical"}'
 ```
 **Action:** cut back to the dashboard — the **Probability Timeline** ticks with a new
 point, no refresh.

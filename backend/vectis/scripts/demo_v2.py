@@ -1,12 +1,12 @@
-"""VECTIS V2 — end-to-end Liguria wildfire intelligence demo.
+"""VECTIS V2 — end-to-end California wildfire intelligence demo.
 
 Drives the *entire* V2 pipeline from one script, offline and deterministic:
 
-    Simulated weather alert  →  RealTimeUpdater  →  Liguria RegionTwin transition
+    Simulated weather alert  →  RealTimeUpdater  →  California RegionTwin transition
     →  Monte Carlo (100k scenarios)  →  Bayesian posterior update
     →  LangGraph Analysis Board  →  Decision Intelligence Report
 
-Run it:  ``python -m vectis.scripts.demo_v2``  (or ``python scripts/run_demo_liguria.py``).
+Run it:  ``python -m vectis.scripts.demo_v2``  (or ``python scripts/run_demo_california.py``).
 
 No API key, no network, ~1 second. The console output *is* the product here, so it
 is rendered as a tactical intelligence terminal (neon, boxed panels). All numbers
@@ -112,7 +112,7 @@ def _banner(con: Console) -> None:
     con.line(con.c("▓▓", "green") + con.c(title.center(WIDTH - 4), "cyan", "bold") + con.c("▓▓", "green"))
     con.line(con.c("▓" * WIDTH, "green"))
     con.line(con.c("  CLASSIFICATION: VECTIS // FOR DECISION SUPPORT".ljust(WIDTH), "dim"))
-    con.line(con.c(f"  GENERATED: {datetime.now(UTC):%Y-%m-%d %H:%M:%SZ}  ·  THEATER: LIGURIA, IT"
+    con.line(con.c(f"  GENERATED: {datetime.now(UTC):%Y-%m-%d %H:%M:%SZ}  ·  THEATER: CALIFORNIA, US"
                    .ljust(WIDTH), "dim"))
 
 
@@ -127,7 +127,7 @@ def _risk_block(con: Console, title: str, rs: RiskState) -> None:
 
 
 def _calm_baseline() -> RegionState:
-    """A quiet, in-season baseline for Liguria — elevated watch, not alarm."""
+    """A quiet, in-season baseline for California — elevated watch, not alarm."""
     return RegionState(
         temperature_anomaly=0.3, humidity_level=65.0,
         vegetation_stress=18.0, recent_fire_history=0.0,
@@ -144,9 +144,9 @@ _VAR_DISPLAY = {
 def _alerts() -> list[WeatherAlert]:
     """An incoming severe heatwave followed by a drought confirmation."""
     return [
-        WeatherAlert(source="ARPAL Regional Authority", region="liguria",
+        WeatherAlert(source="ARPAL Regional Authority", region="california",
                      variable="temp_anomaly_c", value=4.5, severity="critical"),
-        WeatherAlert(source="Copernicus EMS", region="liguria",
+        WeatherAlert(source="Copernicus EMS", region="california",
                      variable="rainfall_anomaly_pct", value=-35.0, severity="critical"),
     ]
 
@@ -190,13 +190,13 @@ def run_demo(
     con.info("BOOT", "Bringing VECTIS V2 core online...")
     con.info("ENGINE", f"Vectorized Monte Carlo engine armed — {iterations:,} scenarios/run.")
     config = SimulationConfig(n_iterations=iterations, seed=seed)
-    twin = RegionTwin("liguria", state=_calm_baseline(), config=config)
+    twin = RegionTwin("california", state=_calm_baseline(), config=config)
     manager = StateManager()
     manager.register(twin)
     updater = RealTimeUpdater(manager)
-    baseline = updater.risk_state("liguria")
+    baseline = updater.risk_state("california")
     assert baseline is not None
-    con.info("TWIN", "Registered Digital Twin: RegionTwin[liguria] (Climate Risk).")
+    con.info("TWIN", "Registered Digital Twin: RegionTwin[california] (Climate Risk).")
     con.info("OK", "Core online. Baseline posture established.", "green")
     con.line()
     _risk_block(con, "BASELINE RISK", baseline)
@@ -220,7 +220,7 @@ def run_demo(
                           f"(rerun={'yes' if change.triggered_rerun else 'no'}).")
         con.info("OK", f"Risk recomputed → {change.risk.risk:.1f}/100 "
                        f"[{change.risk.band.value.upper()}].", "green")
-    final = updater.risk_state("liguria")
+    final = updater.risk_state("california")
     assert final is not None
     con.line()
     _risk_block(con, "UPDATED RISK ", final)

@@ -60,7 +60,7 @@ def region_to_world_state(twin_id: str, state: RegionState) -> WorldState:
     dashboard what-if endpoint sliding temperature to +5 °C) can reuse the exact same
     mapping the twin uses internally. Vegetation stress and recent fires raise the
     ignition rate; low humidity becomes a negative rainfall anomaly. Uncertainties
-    mirror the Session-7 Liguria twin.
+    mirror the Session-7 California twin.
     """
     rainfall_anomaly = state.humidity_level - 50.0
     ignition = max(
@@ -92,7 +92,7 @@ def region_to_world_state(twin_id: str, state: RegionState) -> WorldState:
 class RegionState(TwinState):
     """The physical state of a region twin.
 
-    Defaults reproduce the Session-7 Liguria digital twin exactly once mapped
+    Defaults reproduce the Session-7 California digital twin exactly once mapped
     through :meth:`RegionTwin._to_world_state` (temp +2 °C, 20 % humidity → −30 %
     rainfall anomaly, baseline vegetation stress, no recent fires).
     """
@@ -110,7 +110,7 @@ class RegionTwin(DigitalTwin):
 
     def __init__(
         self,
-        twin_id: str = "liguria",
+        twin_id: str = "california",
         *,
         state: RegionState | None = None,
         scenarios: ScenarioSet | None = None,

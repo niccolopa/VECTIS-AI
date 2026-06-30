@@ -52,7 +52,7 @@ class _LyingLLM(LLMProvider):
 @pytest.fixture
 def board_input() -> BoardInput:
     return BoardInput(
-        region="liguria",
+        region="california",
         risk_score=94.0,
         confidence=0.71,
         risk_band=RiskBand.from_score(94.0),
@@ -128,18 +128,18 @@ def test_analyst_copies_figures_not_model_text(board_input):
 
 # ── Integration with a real RegionTwin + the API ─────────────────────────────
 def test_analyze_twin_from_region_twin():
-    twin = RegionTwin("liguria")
+    twin = RegionTwin("california")
     report = SimulationBoardService(llm=_SpyLLM()).analyze_twin(twin)
-    assert report.region == "liguria"
+    assert report.region == "california"
     assert report.analyst.risk_score == twin.computed_risk_state.risk
     assert len(report.source.scenarios) == 3
 
 
 def test_api_generate_report(client):
-    res = client.post("/api/v1/intelligence/reports", json={"region": "liguria"})
+    res = client.post("/api/v1/intelligence/reports", json={"region": "california"})
     assert res.status_code == 200
     body = res.json()
-    assert body["region"] == "liguria"
+    assert body["region"] == "california"
     assert body["analyst"]["summary"]
     assert len(body["scenarios"]) == 3
     assert body["red_team"]["blind_spots"]

@@ -47,9 +47,9 @@ def test_get_db_yields_usable_session() -> None:
 
 def _report(report_id: str) -> DecisionReport:
     return DecisionReport(
-        id=report_id, region="liguria", area_label="Liguria, Italy",
+        id=report_id, region="california", area_label="California, USA",
         risk_score=42.0, confidence=0.7, summary="test",
-        critic_review=CriticReview(approved=True), model_card_ref="liguria/test@v1",
+        critic_review=CriticReview(approved=True), model_card_ref="california/test@v1",
         generated_at=datetime.now(UTC),
     )
 
@@ -61,7 +61,7 @@ def test_sql_repository_roundtrip() -> None:
     fetched = repo.get("dbtest0001")
     assert fetched is not None
     assert fetched.id == "dbtest0001"
-    assert fetched.region == "liguria"
+    assert fetched.region == "california"
 
     recent_ids = [r["id"] for r in repo.list_recent(limit=10)]
     assert "dbtest0001" in recent_ids

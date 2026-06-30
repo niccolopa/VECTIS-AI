@@ -55,7 +55,7 @@ def _print_report(report: DecisionReport) -> None:
 
 
 def main() -> None:
-    region = sys.argv[1] if len(sys.argv) > 1 else "liguria"
+    region = sys.argv[1] if len(sys.argv) > 1 else "california"
     _ensure_ready(region)
     report = Orchestrator().run(AnalysisRequest(region=region))
     _print_report(report)
