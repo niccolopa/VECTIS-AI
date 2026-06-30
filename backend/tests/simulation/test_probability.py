@@ -26,13 +26,13 @@ from vectis.simulation.probability.uncertainty import (
 )
 from vectis.simulation.scenarios.generator import (
     WildfireScenarioGenerator,
-    liguria_wildfire_state,
+    california_wildfire_state,
 )
 
 
 @pytest.fixture
 def state():
-    return liguria_wildfire_state()
+    return california_wildfire_state()
 
 
 @pytest.fixture

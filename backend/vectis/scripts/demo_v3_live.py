@@ -1,4 +1,4 @@
-"""VECTIS V3 — live, continuous Liguria wildfire risk stream.
+"""VECTIS V3 — live, continuous California wildfire risk stream.
 
 Where ``demo_v2`` fires *one* shot through the pipeline, this drives the V3
 :class:`~vectis.realtime.pipeline.ContinuousPipeline` as a **living system**: mock
@@ -55,11 +55,14 @@ from vectis.scripts.demo_v2 import (
     _silence_logs,
 )
 from vectis.simulation.engine.runner import VectorizedMonteCarloEngine
-from vectis.simulation.scenarios.generator import WildfireScenarioGenerator, liguria_wildfire_state
+from vectis.simulation.scenarios.generator import (
+    WildfireScenarioGenerator,
+    california_wildfire_state,
+)
 from vectis.simulation.schemas import SimulationConfig
 
 WIDTH = 76
-CELL_LABEL = "Liguria_01"  # friendly name for the grid cell the Liguria feeds map to
+CELL_LABEL = "California_01"  # friendly name for the grid cell the California feeds map to
 
 
 @dataclass
@@ -92,7 +95,7 @@ class _LivePipeline:
 
 
 def _build(*, n_iterations: int, seed: int, llm: LLMProvider | None) -> _LivePipeline:
-    """Wire the live Liguria pipeline, keeping the Kalman store so we can show variance.
+    """Wire the live California pipeline, keeping the Kalman store so we can show variance.
 
     Mirrors ``build_default_pipeline`` but holds the store reference (and the producer)
     that the live console needs — the demo's bootstrap *is* the wiring.
@@ -109,7 +112,7 @@ def _build(*, n_iterations: int, seed: int, llm: LLMProvider | None) -> _LivePip
             relax_rate=0.4,
         ),
     )
-    base_state = liguria_wildfire_state("liguria")
+    base_state = california_wildfire_state("california")
     scenarios = WildfireScenarioGenerator().generate(base_state)
     broker = MemoryBroker()
     pipeline = ContinuousPipeline(
@@ -128,7 +131,7 @@ def _build(*, n_iterations: int, seed: int, llm: LLMProvider | None) -> _LivePip
     satellite = GlobalSatelliteConnector()
     manager = IngestionManager([weather, satellite])
     producer = EventProducer(manager, broker, topic=DEFAULT_TOPIC)
-    # Both feeds report at Liguria's centroid → the same grid cell.
+    # Both feeds report at California's centroid → the same grid cell.
     cell_id = naive_cell_id(weather.location)
     return _LivePipeline(pipeline, producer, store, cell_id)
 

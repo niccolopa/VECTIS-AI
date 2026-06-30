@@ -24,10 +24,10 @@ from vectis.realtime.events.base import GeoPoint, GlobalEvent, GlobalObservation
 _MAX_FRP_STD = 50.0
 
 # NASA FIRMS area CSV API. SOURCE picks the satellite product; AREA is a lon/lat bbox
-# (west,south,east,north); DAY_RANGE is how many days back. Liguria default bbox.
+# (west,south,east,north); DAY_RANGE is how many days back. California default bbox.
 _FIRMS_BASE_URL = "https://firms.modaps.eosdis.nasa.gov"
 _FIRMS_PRODUCT = "VIIRS_SNPP_NRT"
-_FIRMS_AREA = "7.4,43.7,10.1,44.7"  # Liguria, Italy (W,S,E,N)
+_FIRMS_AREA = "-122.0,36.0,-118.0,40.0"  # California, USA (W,S,E,N)
 _FIRMS_DAY_RANGE = 1
 
 # VIIRS reports confidence as a letter; MODIS as a 0-100 number. Map letters to a midpoint.
@@ -78,8 +78,8 @@ class SatelliteAPIConnector(BaseAPIConnector):
             # No FIRMS key → deterministic offline detections (clone-safe, no network).
             return {
                 "detections": [
-                    {"latitude": 44.41, "longitude": 8.93, "frp": 12.4, "confidence": 80},
-                    {"latitude": 44.10, "longitude": 9.84, "frp": 6.1, "confidence": 45},
+                    {"latitude": 37.0, "longitude": -120.0, "frp": 12.4, "confidence": 80},
+                    {"latitude": 37.3, "longitude": -119.6, "frp": 6.1, "confidence": 45},
                 ]
             }
         url = (

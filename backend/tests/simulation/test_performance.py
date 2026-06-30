@@ -21,14 +21,14 @@ from vectis.simulation.engine.monte_carlo import MonteCarloEngine
 from vectis.simulation.engine.runner import VectorizedMonteCarloEngine, resolve_workers
 from vectis.simulation.scenarios.generator import (
     WildfireScenarioGenerator,
-    liguria_wildfire_state,
+    california_wildfire_state,
 )
 from vectis.simulation.schemas import SimulationConfig, SimulationRun
 
 
 @pytest.fixture
 def state():
-    return liguria_wildfire_state()
+    return california_wildfire_state()
 
 
 @pytest.fixture
@@ -86,8 +86,8 @@ def test_cache_key_ignores_volatile_timestamp(scenarios):
     # Two semantically-identical states (built separately, so distinct objects and
     # possibly different estimated_at timestamps) must hash to the same run key.
     cfg = SimulationConfig(n_iterations=10, seed=1)
-    s1 = liguria_wildfire_state()
-    s2 = liguria_wildfire_state()
+    s1 = california_wildfire_state()
+    s2 = california_wildfire_state()
     assert s1 is not s2
     assert run_key(s1, scenarios, cfg) == run_key(s2, scenarios, cfg)
 

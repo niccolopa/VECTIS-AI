@@ -50,7 +50,7 @@ class WeatherAPIConnector(BaseAPIConnector):
 
     def __init__(self, *, location: GeoPoint | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.location = location or GeoPoint(lat=44.41, lon=8.93)  # Liguria default
+        self.location = location or GeoPoint(lat=37.0, lon=-120.0)  # California default
 
     def fetch(self) -> dict[str, Any]:
         if not self.base_url:

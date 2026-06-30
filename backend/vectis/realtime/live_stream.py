@@ -44,12 +44,15 @@ from vectis.realtime.state.store import MemoryStateStore
 from vectis.realtime.streams.broker import DEFAULT_TOPIC, MemoryBroker
 from vectis.realtime.streams.producer import EventProducer
 from vectis.simulation.engine.runner import VectorizedMonteCarloEngine
-from vectis.simulation.scenarios.generator import WildfireScenarioGenerator, liguria_wildfire_state
+from vectis.simulation.scenarios.generator import (
+    WildfireScenarioGenerator,
+    california_wildfire_state,
+)
 from vectis.simulation.schemas import SimulationConfig
 
 logger = get_logger(__name__)
 
-CELL_LABEL = "Liguria_01"  # friendly name for the grid cell the Liguria feeds map to
+CELL_LABEL = "California_01"  # friendly name for the grid cell the California feeds map to
 
 
 # ── fluctuating mock feeds — the engine of the "live" feeling ─────────────────
@@ -110,15 +113,16 @@ class OscillatingWeatherConnector(WeatherAPIConnector):
 class GlobalSatelliteConnector(SatelliteAPIConnector):
     """Offline FIRMS-style feed: active-fire hotspots across the globe, fluctuating FRP.
 
-    Emits detections at fixed real-world locations (incl. the headline Liguria cell) whose
+    Emits detections at fixed real-world locations (incl. the headline California cell) whose
     fire-radiative-power rises and falls each poll. The worldwide spread is what the global
-    map plots; the Liguria detection feeds the headline cell's hazard signal.
+    map plots; the California detection feeds the headline cell's hazard signal.
     """
 
-    # (lat, lon, place, baseline FRP) — a plausible global fire footprint.
+    # (lat, lon, place, baseline FRP) — a plausible global fire footprint. The first
+    # entry is the headline California cell: its coordinates MUST match the weather
+    # connector's default location so both feeds resolve to the same grid cell.
     _HOTSPOTS: tuple[tuple[float, float, str, float], ...] = (
-        (44.41, 8.93, "Liguria, IT", 16.0),
-        (37.75, -120.50, "California, US", 28.0),
+        (37.0, -120.0, "California, US", 28.0),
         (-33.40, 150.30, "New South Wales, AU", 22.0),
         (38.50, 23.60, "Attica, GR", 18.0),
         (49.20, -123.10, "British Columbia, CA", 14.0),
@@ -146,7 +150,7 @@ class GlobalSatelliteConnector(SatelliteAPIConnector):
 
 
 class LiveClimateStream:
-    """Wire the live Liguria pipeline and emit one renderable frame per tick.
+    """Wire the live California pipeline and emit one renderable frame per tick.
 
     Mirrors ``build_default_pipeline`` but keeps the Kalman store + ingestion manager
     references the frame builder needs (variance, raw events). The pipeline's bootstrap
@@ -158,7 +162,7 @@ class LiveClimateStream:
         *,
         n_iterations: int = 8_000,
         seed: int = 7,
-        region: str = "liguria",
+        region: str = "california",
         llm: LLMProvider | None = None,
     ) -> None:
         self._store: MemoryStateStore[KalmanCellState] = MemoryStateStore()
@@ -173,7 +177,7 @@ class LiveClimateStream:
                 relax_rate=0.4,
             ),
         )
-        base_state = liguria_wildfire_state(region)
+        base_state = california_wildfire_state(region)
         scenarios = WildfireScenarioGenerator().generate(base_state)
         broker = MemoryBroker()
         self._pipeline = ContinuousPipeline(
@@ -192,7 +196,7 @@ class LiveClimateStream:
         satellite = GlobalSatelliteConnector()
         self._manager = IngestionManager([weather, satellite])
         self._producer = EventProducer(self._manager, broker, topic=DEFAULT_TOPIC)
-        # Both feeds report at Liguria's centroid → the same grid cell.
+        # Both feeds report at California's centroid → the same grid cell.
         self._cell_id = naive_cell_id(weather.location)
         self._last_report_id: str | None = None
 

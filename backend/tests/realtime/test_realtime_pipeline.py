@@ -36,7 +36,7 @@ class _SpyLLM(LLMProvider):
 
 
 def _drought_event(value: float = 0.85) -> WeatherEvent:
-    """An Extreme Drought reading for the Liguria cell (a confident measurement, std=0.05)."""
+    """An Extreme Drought reading for the California cell (a confident measurement, std=0.05)."""
     return WeatherEvent(source="test_feed", location=LOC,
                         payload={"variable": "drought_index", "value": value, "std": 0.05})
 

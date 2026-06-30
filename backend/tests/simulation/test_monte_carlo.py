@@ -23,7 +23,7 @@ from vectis.simulation.engine.distributions import (
 from vectis.simulation.engine.runner import VectorizedMonteCarloEngine
 from vectis.simulation.scenarios.generator import (
     WildfireScenarioGenerator,
-    liguria_wildfire_state,
+    california_wildfire_state,
 )
 from vectis.simulation.schemas import (
     DistributionFamily,
@@ -41,7 +41,7 @@ def engine() -> VectorizedMonteCarloEngine:
 
 @pytest.fixture
 def state():
-    return liguria_wildfire_state()
+    return california_wildfire_state()
 
 
 @pytest.fixture

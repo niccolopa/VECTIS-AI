@@ -2,7 +2,7 @@
 
 Implements :class:`~vectis.simulation.scenarios.base.ScenarioGenerator` with a
 small, hand-specified set of weighted future branches, and provides a digital-twin
-:class:`WorldState` factory for Liguria so the engine can be exercised end-to-end
+:class:`WorldState` factory for California so the engine can be exercised end-to-end
 before live State Estimation (NASA FIRMS / ERA5) is wired in.
 """
 
@@ -18,7 +18,7 @@ from vectis.simulation.schemas import (
 )
 
 
-def liguria_wildfire_state(region: str = "liguria") -> WorldState:
+def california_wildfire_state(region: str = "california") -> WorldState:
     """An illustrative current-state digital twin for the wildfire use case.
 
     Encodes the Session-7 example inputs *with uncertainty*: a +2 °C temperature
