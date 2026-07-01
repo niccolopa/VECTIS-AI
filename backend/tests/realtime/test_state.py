@@ -12,6 +12,23 @@ def _obs(variable: str, value: float, cell: str = "44.4,8.9") -> GlobalObservati
     return GlobalObservation(cell_id=cell, variable=variable, value=value, source="weather_api")
 
 
+def test_untouched_store_holds_zero_state_objects() -> None:
+    """Lazy cell birth: a store nobody has written to allocates nothing (Session 30).
+
+    The globe is mostly dormant — memory must track *touched* cells, never the grid size.
+    A cell springs into existence only on its first observation, via the updater's
+    get-or-create path; until then the store is genuinely empty.
+    """
+    store: MemoryStateStore[WorldCellState] = MemoryStateStore()
+    assert len(store._latest) == 0 and len(store._history) == 0
+    assert store.get_state("cell-never-seen") is None  # a read must not materialize it
+    assert len(store._latest) == 0
+
+    # One observation → exactly one cell born, nothing pre-allocated for its neighbors.
+    StateUpdater(store).apply_observation(_obs("temp_anomaly_c", 30.0, cell="only-cell"))
+    assert list(store._latest) == ["only-cell"]
+
+
 def test_fresh_state_initializes_empty_and_unversioned() -> None:
     state = WorldCellState(cell_id="44.4,8.9")
     assert state.version == 0
