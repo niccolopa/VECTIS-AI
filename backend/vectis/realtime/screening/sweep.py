@@ -29,14 +29,12 @@ CellScores = dict[str, ScreeningScore]
 
 
 class ActiveCellStore(Protocol):
-    """The minimum a store must offer to be swept: its hot set + a state lookup.
+    """The minimum a store must offer to be swept: a one-pass read of its active states.
 
-    Satisfied by :class:`~vectis.realtime.state.store.MemoryStateStore` and
-    :class:`~vectis.realtime.state.store.EvictingStateStore` (the hot tiers)."""
+    Satisfied by every :class:`~vectis.realtime.state.store.StateStore`; when the store is an
+    :class:`~vectis.realtime.state.store.EvictingStateStore` this is the bounded hot set."""
 
-    def active_cell_ids(self) -> list[CellId]: ...
-
-    def get_state(self, cell_id: CellId) -> WorldCellState | None: ...
+    def active_states(self) -> list[WorldCellState]: ...
 
 
 class GlobalScreeningSweep:
@@ -60,13 +58,9 @@ class GlobalScreeningSweep:
         return result
 
     def sweep_store(self, store: ActiveCellStore) -> dict[CellId, CellScores]:
-        """Pull the store's hot set and sweep it — the active cells only, never the grid."""
-        cells = [
-            state
-            for cid in store.active_cell_ids()
-            if (state := store.get_state(cid)) is not None
-        ]
-        return self.sweep(cells)
+        """Pull the store's active states in one pass and sweep them — never the whole grid,
+        and with no recency side effect on the store."""
+        return self.sweep(store.active_states())
 
 
 def demo() -> None:

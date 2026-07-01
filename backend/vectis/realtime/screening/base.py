@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from typing import NamedTuple
 
 from vectis.core.schemas import RiskBand
 from vectis.realtime.events.base import CellId
@@ -44,9 +44,12 @@ UNSCREENED_HAZARDS: frozenset[str] = frozenset(
 )
 
 
-@dataclass(frozen=True)
-class ScreeningScore:
-    """One cell's cheap risk index for one hazard, on the shared 0–100 VECTIS scale."""
+class ScreeningScore(NamedTuple):
+    """One cell's cheap risk index for one hazard, on the shared 0–100 VECTIS scale.
+
+    A ``NamedTuple`` (not a dataclass) so 100k of them construct fast in a sweep — this is
+    the per-cell result object the whole heat map is made of.
+    """
 
     hazard: str
     value: float  # 0–100, same convention as core RiskBand / the full engine's risk_score

@@ -65,6 +65,13 @@ class StateStore(ABC, Generic[StateT]):
         raise NotImplementedError
 
     @abstractmethod
+    def active_states(self) -> list[StateT]:
+        """Every currently-held cell's latest state, in one pass — the batch a screening
+        sweep scores. A pure read (no recency side effect). Bounded by the *active* set when
+        wrapped by :class:`EvictingStateStore`; on a bare store it is every cell held."""
+        raise NotImplementedError
+
+    @abstractmethod
     def delete(self, cell_id: CellId) -> None:
         """Drop a cell entirely (latest + history). Used by eviction; a no-op if absent."""
         raise NotImplementedError
@@ -115,6 +122,12 @@ class MemoryStateStore(StateStore[StateT], Generic[StateT]):
         :class:`EvictingStateStore` for planet-scale streams)."""
         with self._lock:
             return list(self._latest)
+
+    def active_states(self) -> list[StateT]:
+        """Every active cell's current state in one pass — the batch a screening sweep scores.
+        A pure read (no recency touch), so it composes into a side-effect-free sweep."""
+        with self._lock:
+            return list(self._latest.values())
 
     def delete(self, cell_id: CellId) -> None:
         with self._lock:
@@ -193,6 +206,15 @@ class RedisStateStore(StateStore[StateT], Generic[StateT]):
     def get_history(self, cell_id: CellId, limit: int = 10) -> list[StateT]:
         raws = self._client().lrange(self._hist_key(cell_id), 0, limit - 1)  # type: ignore[attr-defined]
         return [self._model_type.model_validate_json(r) for r in raws]
+
+    def active_states(self) -> list[StateT]:
+        client = self._client()
+        pattern = f"{self._prefix}:latest:*"
+        keys = list(client.scan_iter(match=pattern))  # type: ignore[attr-defined]  # bounded by hot set under eviction
+        if not keys:
+            return []
+        raws = client.mget(keys)  # type: ignore[attr-defined]
+        return [self._model_type.model_validate_json(r) for r in raws if r]
 
     def delete(self, cell_id: CellId) -> None:
         self._client().delete(self._latest_key(cell_id), self._hist_key(cell_id))  # type: ignore[attr-defined]
@@ -274,6 +296,14 @@ class EvictingStateStore(StateStore[StateT], Generic[StateT]):
         with self._lock:
             self._purge_expired(self._now())
             return list(self._touched)
+
+    def active_states(self) -> list[StateT]:
+        """The hot set's states in one pass, purged of dormant cells first — the batch a
+        screening sweep scores. Eviction deletes from the wrapped store, so the inner store
+        holds exactly the hot set; this reads it directly (no per-cell recency touch)."""
+        with self._lock:
+            self._purge_expired(self._now())
+            return self._inner.active_states()
 
     def delete(self, cell_id: CellId) -> None:
         with self._lock:
