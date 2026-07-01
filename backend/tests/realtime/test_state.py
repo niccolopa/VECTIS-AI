@@ -4,8 +4,44 @@ from __future__ import annotations
 
 from vectis.realtime.events.base import GlobalObservation
 from vectis.realtime.state.models import WorldCellState
-from vectis.realtime.state.store import MemoryStateStore
+from vectis.realtime.state.store import (
+    MemoryStateStore,
+    RedisStateStore,
+    get_state_store,
+)
 from vectis.realtime.state.updater import StateUpdater
+
+
+class _FakeRedis:
+    """Minimal in-memory stand-in for the sync redis client (the 5 commands we use).
+
+    Lets RedisStateStore's serialization + history-cap logic be tested with no redis
+    server — the same "inject a client" seam RedisStreamBroker exposes.
+    """
+
+    def __init__(self) -> None:
+        self.kv: dict[str, str] = {}
+        self.lists: dict[str, list[str]] = {}
+
+    def get(self, key: str) -> str | None:
+        return self.kv.get(key)
+
+    def set(self, key: str, value: str) -> None:
+        self.kv[key] = value
+
+    def lpush(self, key: str, *values: str) -> int:
+        lst = self.lists.setdefault(key, [])
+        for value in values:
+            lst.insert(0, value)  # newest at head, like redis LPUSH
+        return len(lst)
+
+    def ltrim(self, key: str, start: int, end: int) -> None:
+        lst = self.lists.get(key, [])
+        self.lists[key] = lst[start:] if end == -1 else lst[start : end + 1]
+
+    def lrange(self, key: str, start: int, end: int) -> list[str]:
+        lst = self.lists.get(key, [])
+        return lst[start:] if end == -1 else lst[start : end + 1]
 
 
 def _obs(variable: str, value: float, cell: str = "44.4,8.9") -> GlobalObservation:
@@ -79,3 +115,36 @@ def test_history_is_bounded_by_limit() -> None:
 
     history = store.get_history("44.4,8.9", limit=10)
     assert [h.drought_index for h in history] == [4.0, 3.0]  # only the 2 most recent kept
+
+
+def test_redis_store_roundtrips_state_and_caps_history() -> None:
+    """RedisStateStore mirrors MemoryStateStore semantics exactly (via a fake client)."""
+    store: RedisStateStore[WorldCellState] = RedisStateStore(
+        WorldCellState, history_limit=2, redis_client=_FakeRedis()
+    )
+    updater = StateUpdater(store, alpha=1.0)  # overwrite → readable values
+    for value in (10.0, 20.0, 30.0, 40.0):
+        updater.apply_observation(_obs("humidity_pct", value))
+
+    latest = store.get_state("44.4,8.9")
+    assert latest is not None and latest.version == 4 and latest.humidity == 40.0
+
+    # History is newest-first and capped at history_limit (the deque(maxlen) semantics).
+    history = store.get_history("44.4,8.9", limit=10)
+    assert [h.humidity for h in history] == [30.0, 20.0]
+    assert [h.version for h in history] == [3, 2]
+
+
+def test_redis_store_unseen_cell_returns_none() -> None:
+    store: RedisStateStore[WorldCellState] = RedisStateStore(
+        WorldCellState, redis_client=_FakeRedis()
+    )
+    assert store.get_state("never-seen") is None
+    assert store.get_history("never-seen") == []
+
+
+def test_get_state_store_defaults_to_memory(monkeypatch) -> None:
+    """No env set (lean install, no Redis) → the dependency-free in-memory backend."""
+    monkeypatch.delenv("VECTIS_STATE_BACKEND", raising=False)
+    store = get_state_store(WorldCellState)
+    assert isinstance(store, MemoryStateStore)
