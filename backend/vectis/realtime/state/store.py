@@ -109,6 +109,13 @@ class MemoryStateStore(StateStore[StateT], Generic[StateT]):
             # deque is oldest→newest; reverse for newest-first, then cap at limit.
             return list(reversed(hist))[:limit]
 
+    def active_cell_ids(self) -> list[CellId]:
+        """The cells currently holding state — the active set to screen. No eviction here,
+        so this is every cell ever written and not deleted (bound the hot set with
+        :class:`EvictingStateStore` for planet-scale streams)."""
+        with self._lock:
+            return list(self._latest)
+
     def delete(self, cell_id: CellId) -> None:
         with self._lock:
             self._latest.pop(cell_id, None)
@@ -260,6 +267,13 @@ class EvictingStateStore(StateStore[StateT], Generic[StateT]):
         with self._lock:
             self._purge_expired(self._now())
             return self._inner.get_history(cell_id, limit)
+
+    def active_cell_ids(self) -> list[CellId]:
+        """The current **hot set** — exactly the cells a screening sweep should touch, never
+        the whole grid. Purges dormant cells first so it reflects live activity only."""
+        with self._lock:
+            self._purge_expired(self._now())
+            return list(self._touched)
 
     def delete(self, cell_id: CellId) -> None:
         with self._lock:

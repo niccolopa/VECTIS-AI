@@ -15,8 +15,10 @@ from vectis.realtime.screening.base import (
     default_registry,
     register,
 )
+from vectis.realtime.screening.sweep import GlobalScreeningSweep
 from vectis.realtime.screening.wildfire import WildfireScreeningIndex
 from vectis.realtime.state.models import WorldCellState
+from vectis.realtime.state.store import EvictingStateStore, MemoryStateStore
 
 
 def test_screening_score_bands_on_the_shared_scale() -> None:
@@ -86,3 +88,44 @@ def test_screening_does_not_import_the_monte_carlo_engine() -> None:
                     assert not alias.name.startswith("vectis.simulation.engine"), (
                         f"{mod.__name__} imports the MC engine: {alias.name}"
                     )
+
+
+# ── the active-set sweep ─────────────────────────────────────────────────────────────────
+def test_sweep_returns_flat_cell_to_hazard_scores() -> None:
+    cells = [
+        WorldCellState(cell_id="a", temperature=31.0, extra={"wind_speed_kmh": 40.0}),
+        WorldCellState(cell_id="b", temperature=15.0),
+    ]
+    result = GlobalScreeningSweep().sweep(cells)
+    assert result["a"]["wildfire"].value > result["b"]["wildfire"].value
+    assert set(result["a"]) == {"wildfire"}  # only the modelled hazard appears
+
+
+def test_sweep_skips_cells_with_no_screenable_state() -> None:
+    # A cyclone-only cell has no wildfire state and no other model — it is absent entirely,
+    # never a fabricated number.
+    cells = [
+        WorldCellState(cell_id="fire", temperature=30.0),
+        WorldCellState(cell_id="cyc", extra={"cyclone_alert_level": 3.0}),
+    ]
+    result = GlobalScreeningSweep().sweep(cells)
+    assert "fire" in result
+    assert "cyc" not in result
+
+
+def test_sweep_store_touches_only_the_hot_set_not_the_grid() -> None:
+    # EvictingStateStore's hot set is bounded; a swept store must screen exactly those cells.
+    store: EvictingStateStore[WorldCellState] = EvictingStateStore(
+        MemoryStateStore(), maxsize=2
+    )
+    for i in range(5):  # 5 writes, maxsize 2 → only the last 2 survive in the hot set
+        store.save_state(WorldCellState(cell_id=f"c{i}", temperature=20.0 + i))
+
+    result = GlobalScreeningSweep().sweep_store(store)
+    assert set(result) == {"c3", "c4"}, "sweep must see only the active (hot) cells"
+    assert store.active_cells == 2
+
+
+def test_empty_store_sweep_is_empty() -> None:
+    store: MemoryStateStore[WorldCellState] = MemoryStateStore()
+    assert GlobalScreeningSweep().sweep_store(store) == {}
