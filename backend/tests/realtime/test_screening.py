@@ -77,6 +77,7 @@ def test_screening_does_not_import_the_monte_carlo_engine() -> None:
     import vectis.realtime.screening.wildfire as wf_mod
 
     for mod in (base_mod, wf_mod):
+        assert mod.__file__ is not None
         tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module:
@@ -129,3 +130,81 @@ def test_sweep_store_touches_only_the_hot_set_not_the_grid() -> None:
 def test_empty_store_sweep_is_empty() -> None:
     store: MemoryStateStore[WorldCellState] = MemoryStateStore()
     assert GlobalScreeningSweep().sweep_store(store) == {}
+
+
+# ── Step 4: screening ≠ simulation — the gap, measured not assumed ───────────────────────
+# Observed gap of the wildfire screen (a single baseline-scenario point estimate) against
+# the full VectorizedMonteCarloEngine + prior-mixture risk, over a temperature sweep at the
+# California baseline (40k draws, seed=32, n_workers=1). Screening is decoupled from the
+# engine; they share only the logistic hazard, so the difference is exactly {scenario mixture
+# + sampling nonlinearity}:
+#
+#     temp   screen   engine    diff
+#     12.0     0.76     1.85   -1.09
+#     16.0     6.45    13.33   -6.88
+#     20.0    38.34    51.58  -13.23   <- steep transition band: the largest gap
+#     24.0    84.88    88.45   -3.57
+#     28.0    98.06    98.48   -0.42
+#     32.0    99.78    99.83   -0.05
+#     36.0    99.98    99.98   -0.01
+#
+#     MAD = 3.61 (n=7), max = 13.23
+#
+# Reading: the screen matches the engine within ~1 point where risk saturates (both near 0
+# or 100), but under-estimates by up to ~13 points in the mid-risk transition band, always
+# biased LOW (it omits the upward hotter_drier/extreme_wind scenarios the engine mixes in).
+# This is the number Session 33's promotion threshold should respect: screen aggressively in
+# the saturated tails, but promote mid-band cells to the full engine, where the gap is largest
+# and the decision most sensitive. The asserts below are regression guards around the measured
+# gap, not an arbitrary "close enough" — a broken screen (e.g. a wrong climatology offset)
+# blows straight past them.
+def test_screening_gap_vs_full_engine_is_measured_and_bounded() -> None:
+    from vectis.simulation.engine.runner import VectorizedMonteCarloEngine
+    from vectis.simulation.probability.uncertainty import posterior_mixture_risk
+    from vectis.simulation.scenarios.generator import (
+        WildfireScenarioGenerator,
+        california_wildfire_state,
+    )
+    from vectis.simulation.schemas import SimulationConfig
+
+    climatology, baseline_wind = 22.0, 35.0
+    temps = [12.0, 16.0, 20.0, 24.0, 28.0, 32.0, 36.0]
+    cells = [
+        WorldCellState(cell_id=f"t{t}", temperature=t, extra={"wind_speed_kmh": baseline_wind})
+        for t in temps
+    ]
+    screen = WildfireScreeningIndex().score(cells)
+
+    engine = VectorizedMonteCarloEngine()
+    gen = WildfireScenarioGenerator()
+    config = SimulationConfig(n_iterations=40_000, seed=32, n_workers=1, parallel=False)
+
+    diffs, worst_full = [], 0.0
+    worst = 0.0
+    for cell in cells:
+        assert cell.temperature is not None  # constructed with a temperature above
+        state = california_wildfire_state()
+        by = {v.name: v for v in state.variables}
+        by["temp_anomaly_c"].value = cell.temperature - climatology
+        by["wind_speed_kmh"].value = cell.extra["wind_speed_kmh"]
+        scenarios = gen.generate(state)
+        run = engine.run(state, scenarios, config)
+        full = posterior_mixture_risk(scenarios, {o.scenario_id: o.risk.mean for o in run.outcomes})
+        s = screen[cell.cell_id].value
+
+        assert 0.0 <= s <= 100.0 and 0.0 <= full <= 100.0
+        # The screen omits the upward scenarios, so it must not materially OVER-estimate.
+        assert s <= full + 2.0, (cell.temperature, s, full)
+        if abs(s - full) > worst:
+            worst, worst_full = abs(s - full), full
+        diffs.append(abs(s - full))
+
+    mad = sum(diffs) / len(diffs)
+    print(f"\nscreening vs full-engine gap: MAD={mad:.2f}, max={max(diffs):.2f} (n={len(diffs)})")
+
+    # Regression guards informed by the measured gap (MAD~3.6, max~13.2), not arbitrary.
+    assert mad < 8.0, mad
+    assert max(diffs) < 20.0, max(diffs)
+    # The worst gap lives in the unsaturated transition band, not the tails — that is where
+    # promotion to the full engine actually buys accuracy.
+    assert 10.0 < worst_full < 90.0, worst_full
