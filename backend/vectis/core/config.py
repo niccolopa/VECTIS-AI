@@ -50,9 +50,22 @@ class Settings(BaseSettings):
     llm_fast_model: str = "claude-haiku-4-5"
 
     # --- Real-time connectors ---
-    # NASA FIRMS "MAP_KEY" for the active-fire area API. Empty → the satellite connector
+    # NASA FIRMS "MAP_KEY" for the active-fire area API. Empty → the FIRMS connector
     # serves deterministic offline detections, so a fresh clone runs with no key.
     firms_api_key: str = ""
+
+    # Per-source base URLs. Each defaults to the real upstream; point one at the optional
+    # internal Sluice gateway (Step 1) instead and that source flows through it, with no
+    # other code change. The Sluice mirrors each upstream's path shape, so a connector
+    # builds the same URL either way — the Sluice is a drop-in, never a hard dependency.
+    firms_base_url: str = "https://firms.modaps.eosdis.nasa.gov"
+    usgs_base_url: str = "https://earthquake.usgs.gov"
+    gdacs_base_url: str = "https://www.gdacs.org"
+
+    # Sluice-only: the FIRMS MAP_KEY pool the gateway holds and fails over across for
+    # reliability (comma-separated). Empty → falls back to the single ``firms_api_key``.
+    # NOT a rate-limit-evasion pool — see vectis/ingress/sluice.py.
+    sluice_firms_keys: str = ""
 
     # --- Data / ML ---
     data_dir: Path = _REPO_ROOT / "data"
