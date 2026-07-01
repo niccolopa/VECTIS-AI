@@ -18,6 +18,9 @@ them with an auditable AI board whose numbers are produced entirely by determini
 
 ---
 
+<img width="1918" height="862" alt="image" src="https://github.com/user-attachments/assets/da80275e-d949-4c37-b44a-9d7431bf7c5c" />
+
+
 ## What VECTIS is
 
 Most "AI risk" tools hand you one number and ask you to trust it. VECTIS refuses to.
