@@ -15,12 +15,14 @@ from vectis.realtime.screening.base import (
     default_registry,
     register,
 )
+from vectis.realtime.screening.wildfire import WildfireScreeningIndex  # registers wildfire
 
 __all__ = [
     "UNSCREENED_HAZARDS",
     "NotYetScreenedIndex",
     "ScreeningIndex",
     "ScreeningScore",
+    "WildfireScreeningIndex",
     "default_registry",
     "register",
 ]
