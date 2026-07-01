@@ -29,7 +29,6 @@ from typing import TextIO
 from vectis.agents.board.service import SimulationBoardService
 from vectis.agents.llm.base import LLMProvider
 from vectis.core.schemas import RiskBand
-from vectis.realtime.state.cell_id import assign_cell_id
 from vectis.realtime.forecasting.bayesian.priors import ScenarioPriors
 from vectis.realtime.forecasting.bayesian.updater import ContinuousBayesianUpdater
 from vectis.realtime.forecasting.kalman.state_model import KalmanCellState
@@ -45,6 +44,7 @@ from vectis.realtime.pipeline import (
     ForecastResult,
     default_scenario_profiles,
 )
+from vectis.realtime.state.cell_id import assign_cell_id
 from vectis.realtime.state.store import MemoryStateStore
 from vectis.realtime.streams.broker import DEFAULT_TOPIC, MemoryBroker
 from vectis.realtime.streams.producer import EventProducer
