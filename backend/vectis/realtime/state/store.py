@@ -18,7 +18,7 @@ import time
 from abc import ABC, abstractmethod
 from collections import OrderedDict, deque
 from collections.abc import Callable
-from typing import Generic, Protocol, TypeVar
+from typing import Generic, Protocol, Self, TypeVar
 
 from vectis.core.logging import get_logger
 from vectis.realtime.events.base import CellId
@@ -38,7 +38,7 @@ class _CellState(Protocol):
     def model_dump_json(self) -> str: ...
 
     @classmethod
-    def model_validate_json(cls, data: str | bytes) -> _CellState: ...
+    def model_validate_json(cls, data: str | bytes) -> Self: ...
 
 
 #: The concrete state type a store instance holds (``WorldCellState`` for the EMA path,
