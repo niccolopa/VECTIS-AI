@@ -5,6 +5,7 @@ from __future__ import annotations
 from vectis.realtime.events.base import GlobalObservation
 from vectis.realtime.state.models import WorldCellState
 from vectis.realtime.state.store import (
+    EvictingStateStore,
     MemoryStateStore,
     RedisStateStore,
     get_state_store,
@@ -148,3 +149,49 @@ def test_get_state_store_defaults_to_memory(monkeypatch) -> None:
     monkeypatch.delenv("VECTIS_STATE_BACKEND", raising=False)
     store = get_state_store(WorldCellState)
     assert isinstance(store, MemoryStateStore)
+
+
+def test_eviction_lru_bounds_the_hot_set() -> None:
+    """The hot set never exceeds maxsize; the least-recently-touched cell is dropped."""
+    inner: MemoryStateStore[WorldCellState] = MemoryStateStore()
+    store = EvictingStateStore(inner, maxsize=3)
+    updater = StateUpdater(store)
+
+    for i in range(10):
+        updater.apply_observation(_obs("temp_anomaly_c", float(i), cell=f"cell-{i}"))
+
+    assert store.active_cells == 3  # bound holds regardless of total cells seen
+    assert len(inner._latest) == 3  # eviction really dropped them from the inner store
+    assert store.get_state("cell-0") is None  # earliest cell was evicted
+    assert store.get_state("cell-9") is not None  # newest survives
+
+
+def test_eviction_ttl_drops_dormant_cells() -> None:
+    """A cell untouched past the idle window is evicted on the next store operation."""
+    clock = {"t": 0.0}
+    inner: MemoryStateStore[WorldCellState] = MemoryStateStore()
+    store = EvictingStateStore(inner, idle_seconds=60.0, time_fn=lambda: clock["t"])
+    updater = StateUpdater(store)
+
+    updater.apply_observation(_obs("temp_anomaly_c", 30.0, cell="dormant"))
+    assert store.get_state("dormant") is not None
+
+    clock["t"] = 120.0  # advance past the idle window
+    updater.apply_observation(_obs("temp_anomaly_c", 5.0, cell="other"))  # any op triggers purge
+    assert store.get_state("dormant") is None  # flushed out of the hot store
+
+
+def test_rehydration_is_indistinguishable_from_first_touch() -> None:
+    """An evicted cell's next observation is reborn as fresh v1 state (no cold tier yet)."""
+    inner: MemoryStateStore[WorldCellState] = MemoryStateStore()
+    store = EvictingStateStore(inner, maxsize=100)
+    updater = StateUpdater(store)
+
+    first = updater.apply_observation(_obs("temp_anomaly_c", 30.0, cell="c"))
+    assert first.version == 1
+
+    store.delete("c")  # cell goes dormant / evicted — dropped entirely
+
+    reborn = updater.apply_observation(_obs("temp_anomaly_c", 12.0, cell="c"))
+    assert reborn.version == 1  # version 1 again: born fresh, not resumed at version 2
+    assert reborn.temperature == 12.0  # no memory of the pre-eviction value

@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from abc import ABC, abstractmethod
-from collections import deque
+from collections import OrderedDict, deque
+from collections.abc import Callable
 from typing import Generic, Protocol, TypeVar
 
 from vectis.core.logging import get_logger
@@ -62,6 +64,11 @@ class StateStore(ABC, Generic[StateT]):
         """Return up to ``limit`` prior versions of the cell, **newest first**."""
         raise NotImplementedError
 
+    @abstractmethod
+    def delete(self, cell_id: CellId) -> None:
+        """Drop a cell entirely (latest + history). Used by eviction; a no-op if absent."""
+        raise NotImplementedError
+
 
 class MemoryStateStore(StateStore[StateT], Generic[StateT]):
     """In-memory store: latest state per cell + a bounded append-only history.
@@ -101,6 +108,11 @@ class MemoryStateStore(StateStore[StateT], Generic[StateT]):
                 return []
             # deque is oldest→newest; reverse for newest-first, then cap at limit.
             return list(reversed(hist))[:limit]
+
+    def delete(self, cell_id: CellId) -> None:
+        with self._lock:
+            self._latest.pop(cell_id, None)
+            self._history.pop(cell_id, None)
 
 
 class RedisStateStore(StateStore[StateT], Generic[StateT]):
@@ -174,6 +186,105 @@ class RedisStateStore(StateStore[StateT], Generic[StateT]):
     def get_history(self, cell_id: CellId, limit: int = 10) -> list[StateT]:
         raws = self._client().lrange(self._hist_key(cell_id), 0, limit - 1)  # type: ignore[attr-defined]
         return [self._model_type.model_validate_json(r) for r in raws]
+
+    def delete(self, cell_id: CellId) -> None:
+        self._client().delete(self._latest_key(cell_id), self._hist_key(cell_id))  # type: ignore[attr-defined]
+
+
+class EvictingStateStore(StateStore[StateT], Generic[StateT]):
+    """TTL + LRU eviction over any :class:`StateStore` — bounds the *hot set* to the
+    active cells, so memory tracks activity, never the size of the planet.
+
+    Same design as :class:`~vectis.simulation.caching.SimulationCache` (an ``OrderedDict``
+    ordered by recency + monotonic timestamps), retargeted from simulation results to cell
+    state. Two bounds, both enforced on every touch:
+
+    - **TTL** — a cell untouched for longer than ``idle_seconds`` is *dormant* and evicted.
+    - **LRU** — the hot set never exceeds ``maxsize``; the least-recently-touched cell is
+      evicted when a new one would overflow it.
+
+    Eviction **drops the cell from the wrapped store** (``inner.delete``) — out of Redis
+    when Redis is the backend, out of memory always.
+
+    LIMITATION (Session 30): **there is no cold tier yet.** Eviction is a genuine delete;
+    an evicted cell is gone. Its next observation rebuilds it as fresh first-touch state
+    through the updater's lazy-birth path — and because nothing was persisted, that rebuilt
+    cell *is* new, indistinguishable from a location never seen before. PostGIS cold-tier
+    persistence + true rehydration is scheduled for Session 35; until then "rehydration"
+    means "reborn from the next observation," and this is intentional, not a gap to hide.
+    """
+
+    def __init__(
+        self,
+        inner: StateStore[StateT],
+        *,
+        maxsize: int = 100_000,
+        idle_seconds: float = 3600.0,
+        time_fn: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if maxsize < 1:
+            raise ValueError("maxsize must be >= 1")
+        self._inner = inner
+        self._maxsize = maxsize
+        self._idle = idle_seconds
+        self._now = time_fn
+        self._touched: OrderedDict[CellId, float] = OrderedDict()  # cell → last-touch time
+        self._lock = threading.Lock()
+        self.evictions = 0
+
+    @property
+    def active_cells(self) -> int:
+        """Cells currently in the hot set (the number the bounds keep small)."""
+        return len(self._touched)
+
+    def __len__(self) -> int:
+        return len(self._touched)
+
+    def get_state(self, cell_id: CellId) -> StateT | None:
+        with self._lock:
+            now = self._now()
+            self._purge_expired(now)
+            state = self._inner.get_state(cell_id)
+            if state is not None:
+                self._touch(cell_id, now)
+            return state
+
+    def save_state(self, cell_state: StateT) -> None:
+        with self._lock:
+            now = self._now()
+            self._purge_expired(now)
+            self._inner.save_state(cell_state)
+            self._touch(cell_state.cell_id, now)
+
+    def get_history(self, cell_id: CellId, limit: int = 10) -> list[StateT]:
+        with self._lock:
+            self._purge_expired(self._now())
+            return self._inner.get_history(cell_id, limit)
+
+    def delete(self, cell_id: CellId) -> None:
+        with self._lock:
+            self._touched.pop(cell_id, None)
+            self._inner.delete(cell_id)
+
+    def _touch(self, cell_id: CellId, now: float) -> None:
+        """Mark a cell most-recently-used; evict LRU if that overflows ``maxsize``."""
+        self._touched[cell_id] = now
+        self._touched.move_to_end(cell_id)
+        while len(self._touched) > self._maxsize:
+            old_cell, _ = self._touched.popitem(last=False)  # least-recently-touched
+            self._inner.delete(old_cell)
+            self.evictions += 1
+
+    def _purge_expired(self, now: float) -> None:
+        """Evict every cell idle longer than the TTL. Front of the dict is oldest-touched,
+        so we can stop at the first still-fresh cell."""
+        while self._touched:
+            cell_id, ts = next(iter(self._touched.items()))
+            if now - ts <= self._idle:
+                break
+            self._touched.pop(cell_id)
+            self._inner.delete(cell_id)
+            self.evictions += 1
 
 
 def get_state_store(
