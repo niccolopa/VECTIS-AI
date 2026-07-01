@@ -4,7 +4,21 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-07-01** · End of **Session 31** (Real Ingestion: the first live global
+Last updated: **2026-07-01** · End of **Session 32** (The Screening Layer — a cheap global risk
+index: added **Tier 0**, a near-free vectorized risk score over the *active* cell set, completely
+decoupled from the expensive Monte Carlo + Bayesian + board pipeline. A pluggable **per-hazard**
+`ScreeningIndex` registry (`vectis/realtime/screening/`) mirrors how `HazardModel`s plug into the
+engine; **only `wildfire` has a real implementation** (`WildfireScreeningIndex`, the Session-7
+logistic evaluated **once** per cell — no sampling), and the other observed hazards (quake / flood /
+cyclone / tsunami / volcano) are listed as `UNSCREENED_HAZARDS` with **no registry entry** — the
+honest `NotYetScreenedIndex` stub *raises* rather than fabricate a number. `GlobalScreeningSweep`
+scores the store's **hot set only** (new bulk `StateStore.active_states()`), never the theoretical
+grid, and is pure/synchronous. Measured gap vs the full engine: **MAD 3.61, max 13.23** over a temp
+sweep — the screen matches within ~1 pt in the saturated tails but under-estimates by up to ~13 pts
+in the mid-risk transition band (always biased low; it omits the upward scenarios). Speed: **100k
+active cells swept in 361 ms single-threaded (~277k cells/s)**, well under the 1 s budget. **180
+backend tests pass** (+1 network-gated skip, +1 new slow), ruff + mypy clean. See the Session 32
+section directly below.) · End of **Session 31** (Real Ingestion: the first live global
 feeds — replaced the last synthetic hazard feed and added two genuinely new ones so real
 worldwide **fire (NASA FIRMS)**, **earthquake (USGS)**, and **multi-hazard (GDACS)** detections
 now flow through the existing pipeline onto the H3 grid, each landing at its **real `(lat, lon)`**
@@ -98,6 +112,123 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 32 — The Screening Layer (a cheap global risk index)
+
+**Goal**: Build **Tier 0** — a near-free, vectorized risk *index* over the **active cell set** (the
+global heat map), completely decoupled from the expensive Monte Carlo + Bayesian + board pipeline
+that only ever runs on a small, promoted subset. Every active cell gets a screening score on every
+update; the heavy engine runs nowhere until a future session *promotes* a cell. Backend-only: no
+tiering/promotion (that's Session 33), no calibration, no frontend. The one hard rule this session
+had to honour: **only wildfire has a hazard model today** — build the layer to be genuinely
+pluggable per-hazard, wire wildfire for real, and leave an honest, tested stub for the hazards that
+have no model yet (quake/flood/cyclone/tsunami/volcano) instead of fabricating a plausible number.
+
+**Current Progress**: Session 32 (**The Screening Layer — COMPLETE**). Five atomic step commits.
+Backend **180 pytest pass** (+1 network-gated skip, +1 new `slow`; was 171), `ruff` + `mypy` clean
+(146 source files), working tree clean.
+
+- **Step 1 — the `ScreeningIndex` abstraction** (`feat: add pluggable per-hazard ScreeningIndex
+  abstraction (Tier 0)`). New package `vectis/realtime/screening/`. `base.py`: `ScreeningScore`
+  (a `NamedTuple` — `hazard: str`, `value: float` on the shared 0–100 scale, `.band` via the
+  project-wide `RiskBand`), the `ScreeningIndex` ABC (one method, `score(cells) -> {cell_id:
+  ScreeningScore}`), and a hazard-keyed **registry** (`register()` / `default_registry()`) a future
+  session extends without touching this module — mirroring how `HazardModel`s plug into the MC
+  engine. Honest scope is documented and enforced: `UNSCREENED_HAZARDS = {quake, flood, cyclone,
+  tsunami, volcano}` have **no registry entry**, and `NotYetScreenedIndex(hazard).score()` **raises**
+  `NotImplementedError` rather than return a fake value.
+- **Step 2 — `WildfireScreeningIndex`, the one real implementation** (`feat: add
+  WildfireScreeningIndex — the one real Tier 0 screen`). `wildfire.py` wraps the Session-7
+  `WildfireHazardModel` and evaluates its **vectorized logistic once** per cell — a point estimate,
+  one NumPy pass, no sampling/scenarios/Monte Carlo. Reads `WorldCellState`: absolute `temperature`
+  → anomaly via the same **~22 °C climatology** baseline the pipeline's `KALMAN_TO_WORLD` bridge
+  uses; `wind_speed_kmh` from `extra`; model inputs a cell doesn't carry (rainfall anomaly, ignition
+  sources) fall back to the digital-twin climatology **so the screen estimates the same hazard the
+  full engine's base state does** (otherwise the measured gap would be meaningless). A cell with no
+  `temperature` (e.g. a cyclone-only GDACS cell) has no wildfire state → **skipped**, never
+  fabricated. Registers itself at import. **Decoupling is proven**, not asserted in prose: an
+  AST-parsing test confirms neither screening module imports `vectis.simulation.engine`.
+- **Step 3 — `GlobalScreeningSweep` over the active set** (`feat: sweep the active cell set with
+  every registered screening index`). `sweep.py`: `sweep(cells)` is a **pure, synchronous** pass
+  (no I/O, no side effects) that runs every registered index and returns a flat
+  `{cell_id: {hazard: ScreeningScore}}`; `sweep_store(store)` pulls the store's **hot set only** and
+  feeds it in. Added a bulk `StateStore.active_states()` (Memory / Redis-SCAN / Evicting) — a
+  one-pass, **side-effect-free** read (no per-cell recency touch). Under `EvictingStateStore` the
+  inner store holds exactly the hot set, so this never enumerates the theoretical planet-wide grid.
+  Cells a hazard can't score are simply absent from the result.
+- **Step 4 — the gap, measured not assumed** (`test: measure the screening-vs-full-engine gap
+  honestly`). A test compares `WildfireScreeningIndex` against the full `VectorizedMonteCarloEngine`
+  + prior-mixture risk over a temperature sweep at the California baseline (40k draws, seed 32,
+  single-threaded). **Observed: MAD 3.61, max 13.23.** The screen matches the engine within ~1 pt
+  where risk saturates (both near 0 or 100) but **under-estimates by up to ~13 pts in the mid-risk
+  transition band** (temp ≈ 20 °C, anomaly ≈ −2), **always biased low** — it evaluates only the
+  baseline scenario at the mean, omitting the upward `hotter_drier` / `extreme_wind` scenarios the
+  engine mixes in. The full table is a code comment in `tests/realtime/test_screening.py`. The asserts
+  are regression guards around the measured gap (MAD < 8, max < 20), **not** an arbitrary tolerance,
+  plus a structural check that the worst gap lives in the unsaturated band — exactly where Session 33
+  should promote cells to the full engine.
+- **Step 5 — the speed proof** (`test: prove the screening sweep scales to 100k active cells
+  sub-second`). `tests/realtime/test_screening_scale.py` (`@pytest.mark.slow`): fills the hot store
+  with **100k** land-weighted H3 cells (reusing Session 30's `_random_land_point` generator, not a
+  duplicate) and sweeps them in one pass — **361 ms single-threaded (~277k cells/s)**, well under
+  the 1 s budget. It prints the real number (in the `make stress` spirit), doesn't assume a speedup.
+
+**The `ScreeningIndex` design (what's real vs stubbed today)**: the layer is a registry of per-hazard
+indices. `wildfire` is the **only real** screen — it reuses the Session-7 logistic as a single
+vectorized point estimate. `quake`, `flood`, `cyclone`, `tsunami`, `volcano` are **observed in the
+event stream but have no model**: they are absent from the registry, so the sweep returns nothing for
+them, and `NotYetScreenedIndex` is the explicit, tested extension point that *raises* if a future
+session tries to score them before wiring a real model. This is the deliberate refusal-to-fake the
+project has held since V2. Adding a hazard later = implement a `ScreeningIndex`, call `register()` —
+zero edits to this session's code.
+
+**The measured screening↔engine gap (why it matters for Session 33)**: MAD 3.61 / max 13.23 over the
+sweep. The shape is the useful part: **tight in the saturated tails, widest (and always low) in the
+mid-risk transition band**. So a responsible promotion policy screens aggressively where risk is
+clearly near 0 or near 100 and **promotes the mid-band cells** to the full engine, where the cheap
+approximation is least trustworthy and the decision is most sensitive. This number is the input
+Session 33 should use to set its threshold, rather than a guessed tolerance.
+
+**What Worked**:
+- **Reusing the hazard function, not the engine.** The screen shares only `WildfireHazardModel` with
+  the Monte Carlo path — one NumPy pass, no sampler, no scenarios. The two risk paths stay genuinely
+  independent (AST-proven), which is the whole point of a cheap Tier 0.
+- **The registry mirrors the existing `HazardModel` plug pattern**, so "pluggable per-hazard" needed
+  no new machinery a reviewer hasn't already seen.
+- **Bulk `active_states()` over per-cell reads.** The first sweep did a `get_state` per cell, which
+  (on `EvictingStateStore`) touched LRU recency 100k times — both a side effect and the bottleneck.
+  A one-pass bulk read made the sweep side-effect-free *and* cut the time; making `ScreeningScore` a
+  `NamedTuple` (not a frozen dataclass) roughly halved the per-cell construction cost. 629 ms → 361 ms.
+- **Measuring the gap before asserting it.** Running the comparison first gave real numbers (MAD 3.61,
+  max 13.23), so the test guards are anchored to reality, not a hopeful constant — and the shape of
+  the gap became an actionable finding for the next session.
+
+**What Didn't Work / Notes**:
+- **`WorldCellState.temperature` is an absolute reading, not an anomaly.** The hazard model wants a
+  `temp_anomaly_c`, so the screen subtracts the ~22 °C climatology (matching `KALMAN_TO_WORLD`).
+  Feeding the raw reading in unshifted saturates every cell to ~100. `ponytail:` this baseline is
+  hand-set; wire per-cell climatology when calibration lands.
+- **Unobserved model inputs use a climatology fallback.** The cell state carries no rainfall anomaly
+  or ignition-source count, so the screen fills them from the digital-twin baseline. This is what
+  makes the screen approximate the *same* quantity the full engine's base state evaluates; drop the
+  fallback and fold real values into `WorldCellState` when feeds carry them.
+- **The `vectis.realtime` package `__init__` eagerly imports the pipeline** (hence the MC engine), so
+  a naïve `sys.modules` decoupling check would flag that pre-existing, unrelated coupling. The real
+  decoupling claim — screening's *own* modules never import the engine — is proven by AST-parsing
+  their imports instead.
+- **H3 collisions cap the distinct active set.** 100k random land points map to ~51k distinct res-5
+  cells, so the scale test *keeps sampling until the hot set reaches 100k* rather than assuming one
+  point = one cell.
+
+**Next Steps**: **Session 33 — Triggered Deep Analysis (the tiering engine).** Use the screening
+score to decide **where** the expensive pipeline runs: promote a small subset of cells from the
+cheap screen to the full Kalman → Bayesian → Monte Carlo → decision board, driven by the screening
+value (and its known gap — promote the mid-risk transition band first, where MAD is largest). This is
+the "cheap everywhere, expensive only where it matters" split the whole V4 arc has been building
+toward. Later in the arc: tiering/zoom over the H3 hierarchy (the still-unused parent/child helpers)
+and the PostGIS cold tier + true rehydration (Session 35).
 
 ---
 
