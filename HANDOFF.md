@@ -4,7 +4,16 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-07-01** · End of **Session 30** (The Global Grid & Sparse State —
+Last updated: **2026-07-01** · End of **Session 31** (Real Ingestion: the first live global
+feeds — replaced the last synthetic hazard feed and added two genuinely new ones so real
+worldwide **fire (NASA FIRMS)**, **earthquake (USGS)**, and **multi-hazard (GDACS)** detections
+now flow through the existing pipeline onto the H3 grid, each landing at its **real `(lat, lon)`**
+instead of one fixed demo coordinate. Added an **optional internal gateway — the *Sluice*** — that
+holds FIRMS credentials, retries/normalizes upstream responses, and fails over across keys purely
+for **reliability**; it mirrors each upstream's path shape so connectors are a drop-in either way and
+fall back to the raw upstream when it isn't running (the offline/keyless promise is unbroken). All
+four feeds are offline-safe. **171 backend tests pass** (+1 network-gated skip), ruff + mypy clean.
+See the Session 31 section directly below.) · End of **Session 30** (The Global Grid & Sparse State —
 first session of the V4 arc: retired the placeholder `naive_cell_id` 0.1° quantization for **H3
 hierarchical addressing** (resolution 5, ~8.5 km cells) with parent/child helpers; proved **lazy
 cell birth** (an untouched store allocates zero cells); promoted **`RedisStateStore`** from a
@@ -89,6 +98,149 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 31 — Real Ingestion: the first live global feeds
+
+**Goal**: With H3 addressing + sparse storage in place (Session 30), wire the first **genuinely
+global, genuinely real** disaster feeds into the grid. Replace the last synthetic hazard connector
+and add two new ones so real worldwide **fire**, **earthquake**, and **multi-hazard** detections flow
+through the existing `IngestionManager → EventProducer → broker` pipeline onto real H3 cells — each
+event landing wherever on Earth it actually occurred, not at one fixed demo coordinate. Still an
+ingestion-layer session: no tiering, no promotion logic, no frontend. Success = real detections on
+the correct cells anywhere on the planet, not any risk score changing.
+
+**Current Progress**: Session 31 (**Real Ingestion — COMPLETE**). Seven commits (6 step commits +
+one pre-existing lint sort). Backend **171 pytest pass** (+1 network-gated skip; was 163),
+`ruff` + `mypy` clean (142 source files), working tree clean.
+
+- **Step 1 — the Sluice, an optional internal gateway** (`feat: add the Sluice — optional outbound
+  feed gateway with credential failover`). New `vectis/ingress/sluice.py`: a small standalone FastAPI
+  service VECTIS owns end to end (**original design, not modeled on any third-party product**). Its
+  only job is *reliability*: hold the FIRMS MAP_KEY(s), retry/normalize upstream responses, and
+  **fail over** across credentials for one source when more than one is configured. USGS/GDACS are
+  keyless and pass straight through. The framework-free `Sluice` class carries the retry+failover
+  logic (unit-tested directly); thin FastAPI routes wrap it, **one endpoint per upstream, each
+  mirroring the real API's exact path shape** — so a connector builds the *same* URL whether it
+  targets the Sluice or the upstream. Selected per source via `VECTIS_{FIRMS,USGS,GDACS}_BASE_URL`
+  (each defaults to the real upstream), so the gateway is **fully optional** — connectors fall back
+  to the raw upstream when it isn't running, and the offline/keyless promise is unbroken. FIRMS key
+  pool from `VECTIS_SLUICE_FIRMS_KEYS` (falls back to `VECTIS_FIRMS_API_KEY`). **Recorded principle
+  (module docstring):** failover is for *outage tolerance*, **never** for mass-registering keys to
+  evade a provider's rate limits. `tests/ingress/test_sluice.py` (5 tests) proves failover, exhausted
+  credentials, keyless pass-through, and transient-5xx retry.
+- **Step 2 — `FirmsConnector`** (`feat: add global FirmsConnector for real worldwide active-fire
+  detections`). New `realtime/connectors/firms.py` replacing the California-pinned satellite feed as
+  the fire source. Reads the NASA FIRMS **global** area-CSV feed (world bbox `-180,-90,180,90`),
+  mapping each row to a `GlobalEvent` at its **real `(lat, lon)`** with the acquisition timestamp and
+  the Session-18 confidence routing (FIRMS confidence → event `confidence` + observation `std`; VIIRS
+  `l`/`n`/`h` letters mapped). Key from `VECTIS_FIRMS_API_KEY`, base from `VECTIS_FIRMS_BASE_URL`.
+  **Live** when a key is set *or* a gateway base is configured (the Sluice holds the key, so a
+  placeholder path segment keeps shape parity); otherwise (and on any feed failure) `collect()`
+  degrades to deterministic offline detections spread across four continents — never raises.
+- **Step 3 — `UsgsQuakeConnector`** (`feat: add UsgsQuakeConnector for the real global earthquake
+  feed`). New `realtime/connectors/usgs.py`. Reads the **keyless** USGS `4.5_day` summary GeoJSON
+  (M4.5+, past 24 h — chosen for a meaningful *global* signal without micro-seismic noise; documented
+  in the module). Each feature → `GlobalEvent` at real coords (GeoJSON `[lon, lat, depth]`), magnitude
+  in `payload`, event time from the epoch-ms field, `confidence` from `magError` where the feed
+  reports it else default 1.0. As the keyless connector with no credential logic in the way, it's
+  where retry/backoff is exercised most (the offline fallback is deterministic global quakes).
+- **Step 4 — `GdacsConnector`** (`feat: add GdacsConnector for real global multi-hazard alerts`). New
+  `realtime/connectors/gdacs.py`. Reads the keyless GDACS event-list GeoJSON, emitting **mixed hazard
+  types from one feed** (cyclone / flood / tsunami / volcano / earthquake / drought / wildfire) at
+  their real coords. Hazard type rides in `payload`/`metadata`; because `GlobalObservation` has **no
+  free-form field**, it is preserved into the observation through its **variable name**
+  (`cyclone_alert_level`, `flood_alert_level`, …), so mixed hazards survive end to end. Alert level
+  (Green/Orange/Red → 1/2/3) becomes the value. Offline fallback: deterministic global mixed-hazard
+  alerts.
+- **Step 5 — global ingestion wiring** (`feat: wire the four global feeds into one canonical
+  ingestion manager`). New `realtime/ingestion/global_feeds.py`: `build_global_ingestion_manager()`
+  registers all four real feeds (weather + FIRMS + USGS + GDACS), each offline-safe, and
+  `ingest_into(manager, store)` folds a poll cycle through `to_observation → assign_cell_id` into a
+  state store so every event lands on the H3 cell of its real location. One dead feed contributes
+  nothing to a cycle while the others keep flowing (the Session-17 guarantee, now with four feeds).
+- **Step 6 — the global ingestion proof** (`test: prove global ingestion lands worldwide events on
+  distinct H3 cells`). `tests/realtime/test_global_ingestion.py`: fixture-driven (one shared
+  `httpx.MockTransport`, no live network) — a mixed poll cycle lands real detections on distinct H3
+  cells across **four continents** and into the sparse `EvictingStateStore`; a **dead FIRMS feed
+  degrades without stalling** the other three (which still deliver their live events); and GDACS's
+  **mixed hazard types survive end to end** into `GlobalObservation` variables. The one real-network
+  test hits live USGS and is **skipped unless `VECTIS_LIVE_TESTS=1`** — CI stays offline/deterministic.
+- **Follow-up**: `chore: sort demo_v3_live imports…` — a pre-existing S30 import-order miss that
+  surfaced under `ruff`, fixed in isolation.
+
+**How each connector was integrated**: all three subclass the Session-17 `BaseAPIConnector`, so they
+inherit resilient HTTP (exponential backoff, 4xx-fails-fast, `collect()` that never raises) and only
+implement `fetch()` + `normalize()`. Each defines its own `GlobalEvent` subclass whose
+`to_observation()` calls `assign_cell_id(lat, lon)` — so **cell assignment is automatic and correct
+per event**, no central router needed. Nothing downstream of the connector boundary changed: events
+flow through the *unchanged* `IngestionManager → EventProducer → broker` pipeline exactly as the
+weather connector already did. `build_global_ingestion_manager()` is the new canonical global entry
+point; the Session-24/29 `live_stream.py` SSE demo (a single-cell California *display* concern) was
+deliberately **left untouched** — globalizing ingestion is a separate concern from that one headline
+cell, and disturbing it would have broken its deterministic offline-mock tests for no benefit.
+
+**How the Sluice is positioned**: optional, reliability-only, original. It is **not** on the default
+path — every connector's base URL defaults to the real upstream, so a fresh clone never needs it. It
+exists so that *when* run, one flaky FIRMS key or one transient outage doesn't take a feed down
+(retry + normalize + credential failover). It is explicitly **not** a key-pool for rate-limit evasion
+— that principle is recorded in its module docstring and in the commit. Because it mirrors each
+upstream's path shape, pointing a connector at it (or away from it) is a one-env-var change with no
+code edit — the same optional-infra pattern as the Redis broker / state store.
+
+**How graceful degradation was verified for each**: FIRMS — `demo()` self-check asserts the no-key /
+no-gateway path yields global offline detections on **distinct** cells; the global proof asserts a
+dead-key (HTTP 500) cycle degrades cleanly while the other three feeds keep delivering. USGS & GDACS —
+offline fallbacks return deterministic global features on any `ConnectorError`; `demo()` self-checks
+confirm real feature shapes normalize onto the right cell/variables, and the global proof exercises
+both live. Weather — unchanged Session-29 offline reading. The manager-level guarantee (one feed down,
+three keep flowing, no stall, no raise) is asserted in
+`test_dead_firms_feed_degrades_without_stalling_the_others`.
+
+**Quality-check answers (all yes)**: (1) A clone with **zero keys and zero services** boots and
+streams synthetic-but-plausible global events — every connector is offline-safe and each base URL
+defaults to the real upstream, so nothing is required to run. (2) With `VECTIS_FIRMS_API_KEY` set,
+real fire + (keyless) quake + multi-hazard detections land on the **correct H3 cells worldwide** — a
+California fire and a Japan quake resolve to different cells (asserted against fixtures), not one demo
+coordinate. (3) Kill any one of the four feeds (bad key / simulated timeout) and the other three keep
+flowing with no stall (asserted).
+
+**What Worked**:
+- **The `BaseAPIConnector` seam did all the heavy lifting.** Three real connectors were tiny because
+  retry/backoff/graceful-degradation already lived in the base — each is just `fetch()` (build a URL,
+  parse a payload) + `normalize()` (rows → events). The confidence-routing pattern lifted straight
+  from the S18 satellite connector.
+- **`to_observation()` owning `assign_cell_id`** meant global cell landing needed **no** new routing
+  code — each event self-addresses, so "spread across the planet" fell out of using real coordinates.
+- **Mirroring upstream path shapes** made the Sluice a true drop-in: connectors don't branch on
+  whether it's running; one env var swaps the base and the URL is identical either way.
+- **One shared `httpx.MockTransport` dispatching by path** tested all four connectors together with no
+  network — the same S17 pattern, extended to a multi-feed cycle. `GlobalObservation`'s lack of a
+  free-form field turned out to be a *feature*: encoding hazard in the variable name is what makes the
+  mixed-hazard signal survive into the math layer unambiguously.
+
+**What Didn't Work / Notes**:
+- **`GlobalObservation` has no hazard field.** Preserving GDACS's mixed hazards "into `GlobalObservation`"
+  forced the hazard into the **variable name** (`{hazard}_alert_level`) rather than a payload dict — the
+  observation is deliberately a flat `(cell, variable, value, std)`. This is the right call (it keeps
+  hazards distinguishable downstream) but was the one non-obvious modelling decision.
+- **`live_stream.py` was intentionally not globalized.** Its frame builder reads a single California
+  `cell_id` for *display*; wiring the global feeds into it would either break its offline-mock tests or
+  ship events the frame never renders. The global manager is a separate, honestly-scoped entry point.
+- **Sluice failover detects a jammed FIRMS key by body sniffing.** FIRMS answers a bad/over-quota key
+  with HTTP 200 + a plaintext `Invalid MAP_KEY` body (not a non-200), so failover keys on that string.
+  `ponytail:` widen the heuristic if FIRMS changes its error wording.
+- **The old `SatelliteAPIConnector` was kept, not deleted.** `live_stream.py`'s `GlobalSatelliteConnector`
+  demo feed and several tests still subclass it; `FirmsConnector` is the new canonical fire source for
+  *ingestion*, and satellite.py remains only as the SSE demo's offline hotspot generator.
+
+**Next Steps**: **Session 32 — The Screening Layer (cheap global risk index).** With real global events
+now populating the sparse H3 active set, add a fast, cheap first-pass risk index over those cells — a
+coarse screen that decides *where* the expensive Kalman→Bayesian→Monte-Carlo pipeline is worth running,
+so planet-scale ingestion doesn't imply planet-scale simulation. Later in the V4 arc: tiering/zoom over
+the H3 hierarchy (the still-unused parent/child helpers) and the PostGIS cold tier + true rehydration
+(Session 35).
 
 ---
 
