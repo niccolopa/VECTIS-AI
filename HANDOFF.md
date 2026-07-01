@@ -4,7 +4,17 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-07-01** · End of **Session 29** (Real-World Data Integration —
+Last updated: **2026-07-01** · End of **Session 30** (The Global Grid & Sparse State —
+first session of the V4 arc: retired the placeholder `naive_cell_id` 0.1° quantization for **H3
+hierarchical addressing** (resolution 5, ~8.5 km cells) with parent/child helpers; proved **lazy
+cell birth** (an untouched store allocates zero cells); promoted **`RedisStateStore`** from a
+ponytail comment to a real durable hot tier behind `VECTIS_STATE_BACKEND`; added a **TTL + LRU
+`EvictingStateStore`** so the hot set tracks the *active* cells, not the size of the planet; and a
+slow **bounded-memory load test** streams 100k land-scattered observations and asserts the active
+set never exceeds its bound. Cold storage (PostGIS) does **not** exist yet — eviction is a real
+delete and rehydration = fresh first-touch birth, deferred to Session 35. **163 backend tests pass**
+(incl. 2 slow), ruff + mypy clean. See the Session 30 section directly below.) · End of **Session 29**
+(Real-World Data Integration —
 retired the last synthetic weather feed and put **real, live data** behind the V3 live stream:
 the weather connector now fetches current conditions from the **keyless Open-Meteo API** (real
 California temperature/humidity/wind + a humidity-derived drought index), the live stream drives
@@ -79,6 +89,127 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 30 — The Global Grid & Sparse State
+
+**Goal**: Begin **VECTIS V4** (the planet-scale arc, Sessions 30–40). Replace the single-region,
+unbounded, in-process state model with the structural foundation everything else in V4 stands on:
+a **sparse, lazily-instantiated, hierarchically-indexed global grid**. This session is *only*
+addressing + storage — no simulation, no tiering, no frontend. The guiding principle: **the planet
+is mostly dormant**, so compute and memory must track the *active* set of cells, never the
+theoretical size of the grid.
+
+**Current Progress**: Session 30 (**The Global Grid & Sparse State — COMPLETE**). Seven commits (5
+step commits + a lint sort + a mypy typing fix). Backend **163 pytest pass** (161 fast + 2 slow),
+`ruff` + `mypy` clean, working tree clean.
+
+- **Step 1 — H3 hierarchical cell addressing** (`feat: replace naive lat/lon cells with H3
+  hierarchical addressing`, `41b2ea7`). Added `h3>=4.0` to backend deps. New
+  `realtime/state/cell_id.py`: `assign_cell_id(lat, lon, resolution=5)` maps a coordinate to an H3
+  index (an opaque hex-string `CellId`), plus `parent_cell_id` / `children_cell_ids` wrapping H3's
+  hierarchy (unused today but unit-tested now — Session 31+ tiling depends on them). Deleted the old
+  `naive_cell_id` from `events/base.py` and routed **every** call site through `assign_cell_id`
+  (the three connectors' `to_observation`, `live_stream.py`, `demo_v3_live.py`). One test constant
+  (`test_realtime_pipeline.CELL`) was derived from `assign_cell_id` instead of the hardcoded
+  `"44.4,8.9"`. `test_cell_id.py` (4 tests) proves determinism, resolution, and parent/child
+  round-trips.
+- **Step 2 — lazy cell birth** (`test: prove lazy cell birth — untouched store allocates zero
+  state`, `4f15441`). Audited `store.py`, `models.py`, `kalman/state_model.py`: both updaters
+  already use the Session-19 `get_state → create-if-missing` pattern and `MemoryStateStore` writes
+  nothing until `save_state` — **no pre-allocation, no dense array, no startup init path** anywhere.
+  Added a test proving a store with zero touched cells holds zero state objects and that *reading* an
+  unseen cell does not materialize it.
+- **Step 3 — real `RedisStateStore`** (`feat: promote RedisStateStore to a real durable hot tier`,
+  `e75abdd`). Replaced the ponytail placeholder with a working `RedisStateStore(StateStore[StateT])`:
+  latest state as a JSON string key (`model_dump_json`), history as an `LPUSH`/`LTRIM` list capped at
+  `history_limit` — the exact newest-first, bounded semantics of `MemoryStateStore`'s
+  `deque(maxlen)`. Added `get_state_store()` reading `VECTIS_STATE_BACKEND` (`memory`|`redis`) +
+  `VECTIS_REDIS_URL`, mirroring `get_broker()`. `redis` stays a lazily-imported optional extra.
+  Tested via an injectable in-memory fake client (same seam `RedisStreamBroker` exposes), so the lean
+  no-redis install stays green.
+- **Step 4 — TTL + LRU eviction** (`feat: add TTL + LRU eviction over the state store (hot/cold
+  boundary)`, `cc17b24`). New `EvictingStateStore` wraps any `StateStore` with the
+  `SimulationCache` design (recency-ordered `OrderedDict` + monotonic timestamps), retargeted at cell
+  state: a cell idle past `idle_seconds` is evicted, and the hot set never exceeds `maxsize` (LRU).
+  Eviction drops the cell from the wrapped store via a new `StateStore.delete` (implemented on both
+  backends). Tests cover LRU bound, TTL expiry (injectable clock), and rehydration.
+- **Step 5 — the bounded-memory proof** (`test: prove the hot set stays bounded under 100k global
+  observations`, `74cae2a`). `tests/realtime/test_global_grid_scale.py` (marked `slow`) streams
+  100k land-weighted synthetic observations (sampled within continental bboxes, not uniform over
+  oceans) through `assign_cell_id → EvictingStateStore(maxsize=2000)` and asserts the active set
+  never exceeds the bound mid-stream or at the end, with many evictions. A second test asserts H3
+  parent/child aggregation round-trips across 1000 random cells.
+- **Follow-ups**: `chore: sort live_stream imports…` (`102d27b`) and `fix: type StateStore
+  serialization protocol with Self for strict mypy` (`c12876b`) — the store's `_CellState` Protocol
+  now types `model_validate_json` as returning `Self`, so `RedisStateStore` deserialization is
+  strictly typed against the concrete model.
+
+**H3 addressing scheme (resolution & why)**: default **resolution 5** — ~8.5 km hexagon edge,
+~252 km²/cell, ~2M cells for the whole planet. Chosen as the wildfire sweet spot: fine enough that
+one cell is a meaningful fire-behaviour unit (roughly a large fire's active footprint), coarse
+enough that the *global active set* stays small since we only ever materialize cells with live data.
+Finer (res 6–7) multiplies the active set for no wildfire-scale modelling gain; coarser (res 3–4)
+smears distinct fires into one cell. H3 was chosen over the old rectangular quantization for two
+reasons: **near-constant cell area everywhere** (a 0.1° box collapses toward the poles; a hexagon
+does not) and a **clean hierarchy** (one parent per coarser resolution, fixed children per finer
+one) — the precondition for the tiling/zoom/aggregation the rest of V4 needs.
+
+**Eviction / rehydration behaviour today (and the explicit limitation)**: `EvictingStateStore`
+enforces two bounds on every touch — TTL (idle cells evicted) and LRU (hot set ≤ `maxsize`).
+**There is no cold tier yet.** Eviction is a *genuine delete*: an evicted cell is gone. Its next
+observation is reborn as fresh **version-1** first-touch state via the lazy-birth path —
+indistinguishable from a location never seen before, because nothing was persisted (so it truly *is*
+new). **PostGIS cold-tier persistence + real rehydration is scheduled for Session 35.** Until then,
+"rehydration" means "reborn from the next observation," and this is documented plainly in the code
+(`EvictingStateStore` docstring) and asserted by
+`test_rehydration_is_indistinguishable_from_first_touch` — not faked.
+
+**Quality-check answers (all yes)**: (1) a million scattered observations keep memory bounded by the
+*active* set — the LRU/TTL bound holds regardless of total volume (proven by the slow load test).
+(2) With Redis unavailable, everything runs on `MemoryStateStore` with **no code changes** — `redis`
+is imported lazily and only when `VECTIS_STATE_BACKEND=redis`; the full suite passes without it.
+(3) An evicted cell's next observation silently rebuilds it as fresh v1 state with no crash and no
+special-cased recovery — it's the same lazy-birth path as first touch.
+
+**What Worked**:
+- **H3 confined to one module + the existing `CellId` opacity.** The whole pipeline already treated
+  `CellId` as an opaque shardable string, so swapping the *scheme* behind `assign_cell_id` touched
+  only the call sites — no downstream math or storage changed. `h3.latlng_to_cell` is C-fast, so
+  100k assignments cost nothing.
+- **The Session-19/20 architecture was already sparse.** Lazy birth needed **zero** new code — the
+  `get-or-create` updater pattern and write-on-save store already guaranteed it; Step 2 was pure
+  verification + a proof test. The generic `StateStore[StateT]` (made generic in S20) meant Redis
+  and eviction serve both `WorldCellState` and `KalmanCellState` with no fork.
+- **Reusing proven patterns instead of inventing.** `RedisStateStore` mirrors `RedisStreamBroker`
+  (lazy import, injectable client, env-var resolution); `EvictingStateStore` mirrors
+  `SimulationCache` (OrderedDict TTL+LRU). Both were small, familiar diffs with a known ceiling.
+- **Injectable fakes over a live server.** A ~15-line fake redis client tested the serialization +
+  history-cap logic with no Redis running, keeping CI dependency-free.
+
+**What Didn't Work / Notes**:
+- **`redis.asyncio` vs the sync contract.** The brief said use `redis.asyncio`, but `StateStore` is a
+  **synchronous** contract (the updaters call it inline inside the predict–correct step, and the
+  processor callback path is sync). An async store would force the entire updater/pipeline async for
+  no benefit — the broker is async because *its* contract is; the state store's is not. Resolved by
+  using the **synchronous** `redis` client (documented in the `RedisStateStore` docstring), which
+  keeps it a true drop-in for the existing `StateUpdater`. This was the one deliberate deviation.
+- **Fragile H3 boundary test.** The first "nearby points share a cell" assertion picked two points
+  ~1.4 km apart that happened to straddle a cell boundary and landed in different cells. Fixed by
+  perturbing a cell's own centroid (`h3.cell_to_latlng`) so the test is boundary-robust.
+- **Strict-mypy Protocol typing.** Adding `model_dump_json`/`model_validate_json` to the `_CellState`
+  Protocol first typed the classmethod as returning `_CellState`, so `RedisStateStore` reads didn't
+  narrow to `StateT`. Fixed with `Self` (a follow-up commit).
+- **Eviction has no cold tier (by design).** Called out above and everywhere it matters — this is a
+  Session-30 scope boundary (Session 35), not an oversight.
+
+**Next Steps**: **Session 31 — Real Ingestion: the first live global feeds (FIRMS, USGS, GDACS).**
+With addressing + sparse storage in place, wire real planetary data sources — NASA FIRMS (global
+fires, not just the California bbox), USGS (earthquakes), GDACS (multi-hazard alerts) — through the
+`assign_cell_id → EvictingStateStore` foundation so the global active set is driven by genuine live
+events. Later in the arc: tiering/zoom over the H3 hierarchy (the unused parent/child helpers), and
+the PostGIS cold tier + true rehydration (Session 35).
 
 ---
 
