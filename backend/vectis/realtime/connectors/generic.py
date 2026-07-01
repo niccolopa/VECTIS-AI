@@ -12,7 +12,8 @@ from __future__ import annotations
 from typing import Any
 
 from vectis.realtime.connectors.base import BaseAPIConnector
-from vectis.realtime.events.base import GeoPoint, GlobalEvent, GlobalObservation, naive_cell_id
+from vectis.realtime.events.base import GeoPoint, GlobalEvent, GlobalObservation
+from vectis.realtime.state.cell_id import assign_cell_id
 
 
 class GenericEvent(GlobalEvent):
@@ -20,7 +21,7 @@ class GenericEvent(GlobalEvent):
 
     def to_observation(self) -> GlobalObservation:
         return GlobalObservation(
-            cell_id=self.cell_id or naive_cell_id(self.location),
+            cell_id=self.cell_id or assign_cell_id(self.location.lat, self.location.lon),
             variable=self.payload["variable"],
             value=float(self.payload["value"]),
             std=self.payload.get("std"),

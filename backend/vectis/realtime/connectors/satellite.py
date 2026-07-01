@@ -19,7 +19,8 @@ from typing import Any
 from vectis.core.config import get_settings
 from vectis.core.logging import get_logger
 from vectis.realtime.connectors.base import BaseAPIConnector
-from vectis.realtime.events.base import GeoPoint, GlobalEvent, GlobalObservation, naive_cell_id
+from vectis.realtime.events.base import GeoPoint, GlobalEvent, GlobalObservation
+from vectis.realtime.state.cell_id import assign_cell_id
 
 logger = get_logger(__name__)
 
@@ -42,7 +43,7 @@ class FireDetectionEvent(GlobalEvent):
 
     def to_observation(self) -> GlobalObservation:
         return GlobalObservation(
-            cell_id=self.cell_id or naive_cell_id(self.location),
+            cell_id=self.cell_id or assign_cell_id(self.location.lat, self.location.lon),
             variable="fire_radiative_power",
             value=float(self.payload["frp"]),
             std=self.payload.get("std"),

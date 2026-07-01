@@ -38,16 +38,6 @@ def _event_id() -> str:
     return uuid.uuid4().hex
 
 
-def naive_cell_id(point: GeoPoint, *, precision: int = 1) -> CellId:
-    """A placeholder grid key from rounded lat/lon (e.g. ``"44.4,8.9"``).
-
-    ponytail: a 0.1° quantization stands in for real tiling so connectors can emit
-    canonical observations today. The proper H3/raster ``CellId`` assignment lives in
-    the ``processors`` stage (Session 18) — swap this for it there.
-    """
-    return f"{round(point.lat, precision)},{round(point.lon, precision)}"
-
-
 class GeoPoint(BaseModel):
     """A point on Earth in decimal degrees (WGS84). Global scope made explicit."""
 

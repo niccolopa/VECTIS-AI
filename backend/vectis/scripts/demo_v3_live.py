@@ -29,7 +29,7 @@ from typing import TextIO
 from vectis.agents.board.service import SimulationBoardService
 from vectis.agents.llm.base import LLMProvider
 from vectis.core.schemas import RiskBand
-from vectis.realtime.events.base import naive_cell_id
+from vectis.realtime.state.cell_id import assign_cell_id
 from vectis.realtime.forecasting.bayesian.priors import ScenarioPriors
 from vectis.realtime.forecasting.bayesian.updater import ContinuousBayesianUpdater
 from vectis.realtime.forecasting.kalman.state_model import KalmanCellState
@@ -132,7 +132,7 @@ def _build(*, n_iterations: int, seed: int, llm: LLMProvider | None) -> _LivePip
     manager = IngestionManager([weather, satellite])
     producer = EventProducer(manager, broker, topic=DEFAULT_TOPIC)
     # Both feeds report at California's centroid → the same grid cell.
-    cell_id = naive_cell_id(weather.location)
+    cell_id = assign_cell_id(weather.location.lat, weather.location.lon)
     return _LivePipeline(pipeline, producer, store, cell_id)
 
 

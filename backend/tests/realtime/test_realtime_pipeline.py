@@ -15,10 +15,11 @@ from vectis.agents.llm.base import LLMProvider, NarrationResult
 from vectis.realtime import ContinuousPipeline, build_default_pipeline
 from vectis.realtime.connectors.weather import WeatherEvent
 from vectis.realtime.events.base import GeoPoint
+from vectis.realtime.state.cell_id import assign_cell_id
 from vectis.realtime.streams.broker import DEFAULT_TOPIC, MemoryBroker
 
-CELL = "44.4,8.9"
 LOC = GeoPoint(lat=44.4, lon=8.9)
+CELL = assign_cell_id(LOC.lat, LOC.lon)  # H3 index the event's location maps to
 
 
 class _SpyLLM(LLMProvider):

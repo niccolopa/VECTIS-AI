@@ -29,7 +29,8 @@ from vectis.core.logging import get_logger
 from vectis.realtime.connectors.base import BaseAPIConnector
 from vectis.realtime.connectors.satellite import SatelliteAPIConnector
 from vectis.realtime.connectors.weather import WeatherAPIConnector
-from vectis.realtime.events.base import GlobalEvent, naive_cell_id
+from vectis.realtime.events.base import GlobalEvent
+from vectis.realtime.state.cell_id import assign_cell_id
 from vectis.realtime.forecasting.bayesian.priors import ScenarioPriors
 from vectis.realtime.forecasting.bayesian.updater import ContinuousBayesianUpdater
 from vectis.realtime.forecasting.kalman.state_model import KalmanCellState
@@ -203,7 +204,7 @@ class LiveClimateStream:
         self._manager = IngestionManager([weather, satellite])
         self._producer = EventProducer(self._manager, broker, topic=DEFAULT_TOPIC)
         # Both feeds report at California's centroid → the same grid cell.
-        self._cell_id = naive_cell_id(weather.location)
+        self._cell_id = assign_cell_id(weather.location.lat, weather.location.lon)
         self._last_report_id: str | None = None
 
     @property
