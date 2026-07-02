@@ -4,7 +4,30 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-07-02** · End of **Session 34** (Calibration & Validation — **COMPLETE,
+Last updated: **2026-07-02** · End of **Sessions 35 & 36** (Multi-Hazard Models + The Tile
+Server — **COMPLETE**: three new hazard models behind the shared `HazardModel` seam —
+`FloodHazardModel` (Open-Meteo precipitation + GDACS flood alerts), `EarthquakeImpactModel`
+(Omori-shaped aftershock impact conditioned on real USGS mainshock magnitudes — explicitly
+*not* mainshock prediction), `CycloneHazardModel` (GDACS cyclone alerts + wind) — each with a
+matching `ScenarioGenerator` and **honestly-marked illustrative coefficients** (no hazard in
+this repo has ever been fitted to real labels), loading through the new per-hazard
+`load_calibrated_or_default` seam in `simulation/models/base.py` (whose ABC method was
+**renamed `fire_probability` → `event_probability`**, a breaking-but-handled change:
+`WildfireHazardModel.fire_probability` remains as a delegating legacy alias and all call
+sites were migrated). Real feed data now lands in structured cell state (`precipitation_mm`,
+`earthquake_magnitude`, `flood_alert_level`, `cyclone_alert_level`; event-truth fields
+overwrite, never EMA-blend), `FloodScreeningIndex` / `EarthquakeScreeningIndex` /
+`CycloneScreeningIndex` joined the Tier-0 registry (`UNSCREENED_HAZARDS` is down to tsunami
++ volcano), and `tests/simulation/test_multi_hazard.py` proves all four hazards flow through
+the *same* Monte Carlo engine, Bayesian updater, analyst board (Math Firewall generic), and
+TierManager — `make storm` passes with multi-hazard cells seeded. Session 36 added
+`GET /api/v1/tiles`: viewport bbox + zoom → H3 res (zoom 0–2→res 2, 3–4→3, 5–6→4, 7–8→5
+native, 9–10→6, 11+→7), per-cell risk **sourced only from the Tier-0 screen** (AST-proven
+the router can never import the engine/pipeline/agents), fine-to-coarse roll-up by **max per
+hazard** proven on synthetic siblings, and a `TileCache` (TTL+LRU, keyed on each contributing
+cell's state version) serving repeated pan/zoom at **0.4 ms median** with per-viewport-local
+invalidation. **270 backend tests pass** (+1 network-gated skip; was 241), ruff + mypy
+clean. See the Sessions 35 & 36 section directly below.) · End of **Session 34** (Calibration & Validation — **COMPLETE,
 with the explicit caveat that no real historical calibration data was ever available in this
 environment**: no FIRMS MAP_KEY or CDS credential existed across all three attempts, so the
 full acquisition → join → fit → backtest pipeline (`vectis/calibration/`) is built and tested
@@ -148,6 +171,142 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Sessions 35 & 36 — Multi-Hazard Models + The Tile Server
+
+**Goal**: Give the hazards the event stream already observes but honestly refused to score
+(`UNSCREENED_HAZARDS` since Session 32) real models — flood, earthquake impact, cyclone —
+behind the exact seams wildfire already uses (`HazardModel` → Monte Carlo engine,
+`ScenarioGenerator`, `ScreeningIndex` → Tier-0 registry), fed by the real Session-31 data
+(USGS magnitudes, GDACS alert levels, Open-Meteo precipitation) instead of leaving it parked
+in `payload`/`extra`; prove the whole pipeline is hazard-agnostic; then (Session 36) put a
+tile server over the Tier-0 screen: viewport → H3 resolution → per-cell multi-hazard risk,
+hierarchically aggregated and cached, **without ever touching the expensive T1/T2 tiers**.
+
+**Current Progress**: Sessions 35 & 36 — Multi-Hazard Models + The Tile Server — **COMPLETE**.
+Ten atomic step commits across three passes (Steps 1–2 from the interrupted first pass,
+verified forensically before resuming; Steps 3–10 this pass) + this handoff. Backend **270
+pytest pass** (+1 network-gated skip; was 241), `ruff` + `mypy` clean, working tree clean.
+
+- **Step 1 — the per-hazard artifact seam** (`refactor: generalize calibration-artifact
+  loading into a per-hazard seam`, `babbfbe`). `simulation/models/base.py`: `HazardModel`
+  ABC + `load_calibrated_or_default(hazard, model_cls)` — the Session-34
+  `default_wildfire_model()` pattern extracted once, so every new hazard ships illustrative
+  priors that a future real calibration artifact (`artifacts/calibration/
+  {hazard}_coefficients.json`) replaces as a pure parameter change. **The ABC method was
+  renamed `fire_probability` → `event_probability`** (hazard-agnostic); wildfire keeps
+  `fire_probability` as a delegating legacy alias, and the two call sites
+  (`engine/runner.py`, `screening/wildfire.py`) were migrated — breaking, but handled.
+- **Step 2 — flood** (`feat: add FloodHazardModel…`, `c231a9c`). Vectorized logistic over
+  `precipitation_mm` + `flood_alert_level` (GDACS ordinal), `FloodScenarioGenerator`
+  (baseline / sustained deluge / clearing), `default_flood_model()` through the seam.
+- **Step 3 — earthquake impact** (`feat: add EarthquakeImpactModel…`, `3470a02`).
+  Omori–Utsu-shaped decay: given a real, already-observed USGS mainshock magnitude and
+  elapsed days, a Poisson exceedance probability of damaging aftershock/shaking impact.
+  Explicitly **not mainshock prediction**, and documented as not geophysically precise —
+  the standard empirical *shape* with illustrative constants. `EarthquakeScenarioGenerator`
+  (baseline decay / energetic sequence / rapid quiescence).
+- **Step 4 — cyclone** (`feat: add CycloneHazardModel…`, `e2dd1c7`). Vectorized logistic
+  over `cyclone_alert_level` (GDACS) + `wind_speed_kmh`, `CycloneScenarioGenerator`
+  (baseline track / intensification at landfall / recurvature).
+- **Step 5 — real data into structured state** (`feat: wire real USGS, GDACS, and
+  precipitation data into structured cell state`, `a681f7d`). `WorldCellState` grew
+  `precipitation_mm` / `earthquake_magnitude` / `flood_alert_level` / `cyclone_alert_level`;
+  `VARIABLE_FIELDS` routes the Session-31 feed variables into them (the same map the Kalman
+  updater canonicalizes through, so both state paths agree). **Event-truth fields overwrite
+  instead of EMA-blending** — averaging a new M7 with an old M5 would fabricate an M6. The
+  weather connector now also requests real Open-Meteo precipitation.
+- **Step 6 — the screening indexes** (`feat: register flood, quake, and cyclone screening
+  indexes (Tier 0)`, `f79f093`). `screening/multi_hazard.py`: three indexes, each one
+  vectorized model evaluation per cell, gated on the hazard's *own* observed driver (no
+  driver → skipped, never a fabricated neutral score; unobserved co-drivers default to
+  benign, not to the wet/stormy twin baselines — backfilling those globally would fabricate
+  worldwide risk). `UNSCREENED_HAZARDS` shrank to `{tsunami, volcano}` — still honestly
+  stubbed. The AST decoupling test covers the new module.
+- **Step 7 — the integration proof** (`test: prove fire, flood, quake, and cyclone flow
+  through one unchanged pipeline`, `e8d3a78`). `tests/simulation/test_multi_hazard.py`
+  parametrizes all four models over the shared machinery: engine (escalating branches
+  simulate worse than calming ones), `GaussianBayesianUpdater` (observations shift mass
+  toward the matching scenario), the analyst board's **Math Firewall proven generic** (a
+  lying LLM changes nothing numeric for any hazard — no per-hazard lying-LLM test needed),
+  and `TierManager` (multi-hazard cells collapse to one worst-hazard headline, promoted
+  once). The global storm test now seeds flood/quake/cyclone state into its calm world —
+  `make storm` passes with multi-hazard cells present, budgets and recovery unchanged.
+- **Step 8 — the tile endpoint** (`feat: add H3-aggregated tile endpoint sourced only from
+  the Tier-0 screen`, `584c644`). `api/routers/tiles.py`: `GET /api/v1/tiles?west&south&
+  east&north&zoom[&hazard]`. **Zoom → H3 resolution (exact)**: 0–2→res 2, 3–4→3, 5–6→4,
+  7–8→**5 (native)**, 9–10→6, 11+→7. Coarser than native = roll-up; finer = display
+  subdivision (children inherit the parent's score — the data's resolution floor is 5, and
+  claiming more would fabricate precision). Risk comes from **one `GlobalScreeningSweep`
+  pass, nothing else** — an AST test proves the router can never import
+  `vectis.simulation.engine`, `vectis.realtime.pipeline`, or `vectis.agents`, so rendering
+  a map is structurally incapable of triggering T1/T2 work. Unscreened hazards 404 honestly.
+- **Step 9 — hierarchical aggregation** (`test: prove hierarchical H3 roll-up correctness
+  on a known synthetic case`, `1b3e4b9`). Fine-to-coarse via `parent_cell_id`, **max per
+  hazard** (documented choice: the map is a risk screen — a hot child must never be
+  averaged away), computed on demand from screening data. Proven on synthetic siblings:
+  two res-5 cells under one res-2 parent aggregate to exactly the hotter child's score,
+  each hazard maxes independently across different children, contributor counts are exact,
+  and different parents never leak into each other.
+- **Step 10 — tile caching** (`feat: cache tile responses with TTL+LRU keyed on
+  contributing cell versions`, `9b082b3`). `TileCache` follows the `SimulationCache`
+  TTL+LRU pattern; an entry carries its viewport's contributing cells and the state
+  version each was computed from, so a hit validates with O(visible) point reads instead
+  of an O(hot set) rescan. **Measured: repeated pan/zoom over a 2,000-cell hot set serves
+  hits at 0.4 ms median** (printed by the load test, was 1.7 ms before the fingerprint
+  design), and a real cell update invalidates **only** the viewports it contributes to
+  (the disjoint viewport keeps hitting, asserted on the hit/miss counters). TTL bounds
+  what the fingerprint can't see (cells born into a cached viewport, swapped artifacts).
+
+**What Worked**:
+- **Forensic-first recovery, again.** This pass started from `git log`/`git status`/reading
+  the actual modules instead of trusting the interrupted session's summary — and found the
+  summary *wrong in our favor*: `FloodScenarioGenerator` (feared missing) was already
+  written and committed in `c231a9c`, the working tree was clean, and the suite was green.
+  Steps 1–2 were not redone; work resumed exactly at Step 3.
+- **The seams did the work.** Three new hazard models + three screens were thin because
+  `HazardModel`, `ScenarioGenerator`, `ScreeningIndex`, and `load_calibrated_or_default`
+  already existed — the integration proof then tested the *claim that matters* (the
+  pipeline is hazard-agnostic) instead of re-testing each hazard's plumbing.
+- **The cache fingerprint redesign came from measuring, not guessing.** The first cache
+  keyed on a hash over all visible cells' versions — correct, but the per-request O(hot
+  set) bbox scan + hash held hits at ~1.7 ms. Moving the members+versions *into the entry*
+  (validated by O(visible) point reads) hit 0.4 ms and made invalidation locality
+  measurable. The micro-benchmark that located the cost lived longer than the first design.
+- **Overwrite-not-EMA for event truth.** Caught at design time by asking what an EMA of
+  two mainshock magnitudes *means* (an M6 that never happened). One frozenset and a guard.
+
+**What Didn't Work**:
+- **Two usage-limit interruptions across this combined session** (a factual note, not a
+  code failure): the first pass died mid-Step-2 with its last shell command unconfirmed,
+  and an earlier attempt died before that. The recovery cost was low precisely because
+  every completed step had been committed atomically — the only uncertainty was whether
+  Step 2's second half existed, answered by reading the repo, not the summary.
+- **The `fire_probability` → `event_probability` rename is a breaking-but-handled
+  interface change**: the `HazardModel` ABC contract is now `event_probability`;
+  `WildfireHazardModel.fire_probability` survives as a delegating alias so Session-7-era
+  callers keep working, and a repo-wide grep confirmed no orphaned references. New hazards
+  must implement `event_probability` only.
+- **The first cyclone intercept failed its own demo** (landfall probability 0.786 against
+  a `> 0.8` sanity bound) — the illustrative constants are hand-set, and the demo
+  self-checks exist exactly to catch that; nudged and documented, not hidden.
+- **The tile bbox filter is a center-point test with no antimeridian handling**
+  (`ponytail:` in `tiles.py`) — a viewport crossing ±180° must be split client-side, and
+  the O(hot set) scan on a cache miss wants a spatial index if the hot set outgrows ~100k.
+
+**Next Steps**: **Session 37 — The Terminal Frontend**: render the tile endpoint's
+multi-hazard heat map in the React console (the `/api/v1/tiles` contract — bbox, zoom,
+`hazards` dict per cell — was shaped for a MapLibre layer), wire the tile store to the
+live global ingestion loop, and surface per-hazard drill-down. **Standing prerequisite,
+unchanged and now four hazards wide**: all hazard models — wildfire, flood, quake,
+cyclone — still run on **illustrative, uncalibrated coefficients**. The moment ground-truth
+data/credentials exist (a free FIRMS MAP_KEY for wildfire; flood/quake/cyclone label
+sources to be scoped), run the Session-34 pipeline per hazard (`data.build` → `fit` →
+`backtest`, documented in `docs/calibration_report.md`), drop the artifacts into
+`artifacts/calibration/`, and every default construction site picks them up with zero code
+change. Until then, no risk number the terminal shows is validated.
 
 ---
 
