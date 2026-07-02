@@ -140,6 +140,77 @@ def test_t2_budget_reads_the_env_knob(monkeypatch) -> None:  # type: ignore[no-u
     assert len(mgr.select_t2({f"c{i}": 50.0 + i for i in range(6)})) == 2
 
 
+# ── Step 3: the T1 priority queue — budgeted draining, waiting instead of dropping ─────
+def test_t1_drain_is_hard_bounded_and_highest_priority_first() -> None:
+    mgr = TierManager(max_t1_per_cycle=3)
+    mgr.consider({f"c{i}": 85.0 + i * 0.1 for i in range(10)})  # 10 tail promotions
+    batch = mgr.drain_t1()
+    assert len(batch) == 3
+    assert [d.cell_id for d in batch] == ["c9", "c8", "c7"]  # hottest first
+    assert mgr.t1_queue_depth == 7  # the rest wait
+
+
+def test_cells_that_miss_the_cut_wait_and_are_all_eventually_served() -> None:
+    # The whole point of the queue: a legitimately risky cell is never silently discarded.
+    mgr = TierManager(max_t1_per_cycle=4)
+    promoted = {d.cell_id for d in mgr.consider({f"c{i}": 90.0 + i * 0.01 for i in range(10)})}
+    served: set[str] = set()
+    for _ in range(3):  # 10 cells / budget 4 → 3 cycles to serve everyone
+        served |= {d.cell_id for d in mgr.drain_t1()}
+    assert served == promoted
+    assert mgr.t1_queue_depth == 0
+
+
+def test_bias_corrected_band_cell_outranks_a_higher_raw_tail_score() -> None:
+    # The shape-awareness must reach the *ranking* too: a mid-band cell at 80 may really
+    # be ~93 (measured under-read), so it drains before a saturated-tail cell at 90.
+    mgr = TierManager(max_t1_per_cycle=1)
+    mgr.consider({"band": 80.0, "tail": 90.0})  # band cell: no trend yet, not promoted
+    mgr.consider({"band": 84.0, "tail": 90.0})  # band trends up → promoted at 84+13.23
+    [first] = mgr.drain_t1()
+    assert first.cell_id == "band"
+    assert first.priority > 90.0
+
+
+def test_waiting_cell_is_reranked_by_fresh_evidence_not_its_stale_score() -> None:
+    mgr = TierManager(max_t1_per_cycle=1)
+    mgr.consider({"a": 95.0, "b": 90.0})
+    mgr.drain_t1()  # a served; b waits at priority 90
+    # Next sweep b has cooled to 10 while c crosses the cutoff: c must outrank the
+    # cooled-off waiter — but b still waits rather than being dropped.
+    mgr.consider({"b": 10.0, "c": 88.0})
+    [first] = mgr.drain_t1()
+    assert first.cell_id == "c"
+    assert mgr.t1_queue_depth == 1  # b still queued, at its refreshed (low) priority
+    [leftover] = mgr.drain_t1()
+    assert leftover.cell_id == "b"
+    assert leftover.score == 10.0  # audit trail reflects the freshest evidence
+
+
+def test_sustained_hot_cell_repromotes_after_being_served() -> None:
+    # Persistent activity keeps earning T1 refreshes (bounded by the budget each cycle).
+    mgr = TierManager(max_t1_per_cycle=8)
+    assert len(mgr.consider({"cell": 95.0})) == 1
+    mgr.drain_t1()
+    assert len(mgr.consider({"cell": 95.0})) == 1  # re-promoted, not deduplicated forever
+
+
+def test_requalifying_queued_cell_refreshes_in_place_not_as_a_second_entry() -> None:
+    mgr = TierManager(max_t1_per_cycle=8)
+    assert len(mgr.consider({"cell": 90.0})) == 1
+    assert mgr.consider({"cell": 96.0}) == []  # refreshed, not double-promoted
+    assert mgr.t1_queue_depth == 1
+    [decision] = mgr.drain_t1()
+    assert decision.score == 96.0  # the queue held the freshest evidence
+
+
+def test_t1_budget_reads_the_env_knob(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("VECTIS_MAX_T1_PER_CYCLE", "2")
+    mgr = TierManager()
+    mgr.consider({f"c{i}": 90.0 for i in range(5)})
+    assert len(mgr.drain_t1()) == 2
+
+
 # ── helpers ─────────────────────────────────────────────────────────────────────────────
 def test_total_variation_matches_the_session_22_concept() -> None:
     assert total_variation({"a": 1.0}, {"a": 1.0}) == 0.0

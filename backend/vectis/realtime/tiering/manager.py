@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from vectis.core.logging import get_logger
@@ -143,6 +143,7 @@ class TierManager:
         belief_shift_threshold: float = 0.2,
         trend_epsilon: float = 0.5,
         risk_change_threshold: float = DEFAULT_RISK_CHANGE_THRESHOLD,
+        max_t1_per_cycle: int | None = None,
         max_t2_per_cycle: int | None = None,
     ) -> None:
         self._t1_score_cutoff = t1_score_cutoff
@@ -152,6 +153,8 @@ class TierManager:
         #: float jitter from re-screening near-identical state.
         self._trend_epsilon = trend_epsilon
         self._risk_change_threshold = risk_change_threshold
+        #: hard per-cycle cap on full Monte Carlo + Bayesian runs — the T1 compute budget.
+        self._max_t1 = _env_int(max_t1_per_cycle, 64, "VECTIS_MAX_T1_PER_CYCLE")
         #: hard global cap on board/LLM narrations per cycle — the T2 budget.
         self._max_t2 = _env_int(
             max_t2_per_cycle, 5, "VECTIS_MAX_T2_PER_CYCLE", "VECTIS_MAX_BOARD_REPORTS_PER_CYCLE"
@@ -159,6 +162,8 @@ class TierManager:
 
         #: previous cycle's screen score per cell — the memory the trend gate reads.
         self._last_score: dict[CellId, float] = {}
+        #: T1 candidates awaiting a deep-analysis slot, latest decision per cell.
+        self._t1_queue: dict[CellId, PromotionDecision] = {}
         #: T2 candidates awaiting a board slot; losers of a budget round wait here.
         self._t2_queue: dict[CellId, BoardSlot] = {}
         #: headline risk at each cell's last granted board report — re-arms the change gate.
@@ -198,24 +203,57 @@ class TierManager:
         scores: Mapping[CellId, float],
         belief_shifts: Mapping[CellId, float] | None = None,
     ) -> list[PromotionDecision]:
-        """Evaluate one sweep's worth of cells; return every promotion decided this cycle.
+        """Evaluate one sweep's worth of cells; enqueue and return the *new* promotions.
+
+        A cell already awaiting its T1 slot is refreshed with this cycle's evidence
+        (freshest state wins — the Session-22 coalescing principle at queue level) rather
+        than counted as a second promotion. A queued cell that no longer qualifies stays
+        queued — waiting, never silently dropped — but its priority is re-anchored to the
+        current score, so a cooled-off cell sinks instead of holding a stale hot slot.
 
         Also records each cell's score as the next cycle's trend baseline — a mid-band
         cell first seen this cycle has no trend yet, so it can only promote next cycle
         (or immediately, via the score/belief gates).
         """
         shifts = belief_shifts or {}
-        decisions: list[PromotionDecision] = []
+        promoted: list[PromotionDecision] = []
         for cell_id, score in scores.items():
             decision = self.evaluate(cell_id, score, shifts.get(cell_id, 0.0))
             if decision is not None:
-                decisions.append(decision)
-                logger.debug(
-                    "[TIER] promote %s -> T1 (%s: score=%.1f shift=%.3f prio=%.1f)",
-                    cell_id, decision.reason, score, decision.belief_shift, decision.priority,
+                if cell_id not in self._t1_queue:
+                    promoted.append(decision)
+                    logger.debug(
+                        "[TIER] promote %s -> T1 (%s: score=%.1f shift=%.3f prio=%.1f)",
+                        cell_id, decision.reason, score, decision.belief_shift, decision.priority,
+                    )
+                self._t1_queue[cell_id] = decision  # freshest evidence wins
+            elif cell_id in self._t1_queue:
+                in_band = self._band_low <= score < self._band_high
+                corrected = score + (MAX_MEASURED_UNDERESTIMATE if in_band else 0.0)
+                self._t1_queue[cell_id] = replace(
+                    self._t1_queue[cell_id], score=score, priority=corrected
                 )
             self._last_score[cell_id] = score
-        return decisions
+        return promoted
+
+    @property
+    def t1_queue_depth(self) -> int:
+        """T1 candidates still waiting for a deep-analysis slot."""
+        return len(self._t1_queue)
+
+    def drain_t1(self) -> list[PromotionDecision]:
+        """Grant this cycle's deep-analysis slots: the top ``max_t1_per_cycle`` by priority.
+
+        Priority is the bias-corrected promotion signal (see :meth:`evaluate`), so a
+        transition-band cell competes as the risk it *may really be*. Cells that don't
+        make the cut are **not dropped** — they remain queued and are reconsidered next
+        cycle, when their screening score (and hence rank) may have moved.
+        """
+        ranked = sorted(self._t1_queue.values(), key=lambda d: d.priority, reverse=True)
+        batch = ranked[: self._max_t1]
+        for decision in batch:
+            del self._t1_queue[decision.cell_id]
+        return batch
 
     # ── T1 → T2 ───────────────────────────────────────────────────────────────────
     @property
