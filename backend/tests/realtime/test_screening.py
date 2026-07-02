@@ -40,8 +40,10 @@ def test_register_requires_a_hazard_key() -> None:
 
 
 # ── wildfire index ─────────────────────────────────────────────────────────────────────
-def test_wildfire_is_the_only_registered_hazard_today() -> None:
-    assert set(default_registry()) == {"wildfire"}
+def test_registered_hazards_are_the_four_modelled_ones() -> None:
+    # Session 35 graduated flood/quake/cyclone; tsunami/volcano stay honestly unscreened.
+    assert set(default_registry()) == {"wildfire", "flood", "quake", "cyclone"}
+    assert {"tsunami", "volcano"} == UNSCREENED_HAZARDS
 
 
 def test_wildfire_screen_ranks_hotter_drier_cells_higher() -> None:
@@ -74,9 +76,10 @@ def test_screening_does_not_import_the_monte_carlo_engine() -> None:
     # the pipeline for unrelated reasons, so a sys.modules check would catch that pre-existing
     # coupling, not ours — what matters is screening's own code never importing the engine.)
     import vectis.realtime.screening.base as base_mod
+    import vectis.realtime.screening.multi_hazard as mh_mod
     import vectis.realtime.screening.wildfire as wf_mod
 
-    for mod in (base_mod, wf_mod):
+    for mod in (base_mod, wf_mod, mh_mod):
         assert mod.__file__ is not None
         tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -103,15 +106,24 @@ def test_sweep_returns_flat_cell_to_hazard_scores() -> None:
 
 
 def test_sweep_skips_cells_with_no_screenable_state() -> None:
-    # A cyclone-only cell has no wildfire state and no other model — it is absent entirely,
-    # never a fabricated number.
+    # A tsunami-only cell matches no registered hazard's state — it is absent entirely,
+    # never a fabricated number. (Cyclone cells graduated to a real screen in Session 35.)
     cells = [
         WorldCellState(cell_id="fire", temperature=30.0),
-        WorldCellState(cell_id="cyc", extra={"cyclone_alert_level": 3.0}),
+        WorldCellState(cell_id="tsu", extra={"tsunami_alert_level": 3.0}),
     ]
     result = GlobalScreeningSweep().sweep(cells)
     assert "fire" in result
-    assert "cyc" not in result
+    assert "tsu" not in result
+
+
+def test_sweep_screens_multi_hazard_cells_per_hazard() -> None:
+    # One cell observed by several feeds gets one score per relevant hazard, no cross-talk.
+    both = WorldCellState(
+        cell_id="both", temperature=33.0, flood_alert_level=2.0, precipitation_mm=60.0
+    )
+    result = GlobalScreeningSweep().sweep([both])
+    assert set(result["both"]) == {"wildfire", "flood"}
 
 
 def test_sweep_store_touches_only_the_hot_set_not_the_grid() -> None:

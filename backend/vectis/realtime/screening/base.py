@@ -16,13 +16,14 @@ this module**.
 
 Honest scope (read this before adding a hazard to the heat map)
 ---------------------------------------------------------------
-Today **only** ``wildfire`` has a real implementation (:mod:`.wildfire`). The event stream
-already carries other hazards — quake, flood, cyclone, tsunami, volcano (GDACS/USGS,
-Session 31) — but **there is no risk model for any of them yet** (multi-hazard models are a
-later session). Those hazards are listed in :data:`UNSCREENED_HAZARDS` and have **no
-registry entry**, so the sweep returns *nothing* for them rather than a fabricated number.
-:class:`NotYetScreenedIndex` is the explicit stub/extension point: it documents the gap and
-raises if scored, so a fake index can never silently ship a plausible-looking value.
+``wildfire`` (:mod:`.wildfire`, Session 32) and — since Session 35 — ``flood`` / ``quake``
+/ ``cyclone`` (:mod:`.multi_hazard`) have real implementations, each wrapping its hazard
+model's **illustrative, uncalibrated coefficients** (a score existing is not validation).
+The remaining observed hazards — tsunami, volcano — **still have no risk model**: they are
+listed in :data:`UNSCREENED_HAZARDS` and have **no registry entry**, so the sweep returns
+*nothing* for them rather than a fabricated number. :class:`NotYetScreenedIndex` is the
+explicit stub/extension point: it documents the gap and raises if scored, so a fake index
+can never silently ship a plausible-looking value.
 
 Pure arithmetic, no LLM, no simulation import — the Math Firewall holds.
 """
@@ -39,9 +40,8 @@ from vectis.realtime.state.models import WorldCellState
 
 #: Hazards observed in the Session-31 event stream that have **no** screening model yet.
 #: They are deliberately absent from the registry — a screen for them is a future session.
-UNSCREENED_HAZARDS: frozenset[str] = frozenset(
-    {"quake", "flood", "cyclone", "tsunami", "volcano"}
-)
+#: (Session 35 graduated quake / flood / cyclone out of this set into real indexes.)
+UNSCREENED_HAZARDS: frozenset[str] = frozenset({"tsunami", "volcano"})
 
 
 class ScreeningScore(NamedTuple):
