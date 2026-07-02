@@ -19,6 +19,8 @@ from vectis.core.exceptions import VectisError
 from vectis.core.logging import configure_logging, get_logger
 from vectis.database.repository import build_repository
 from vectis.realtime.live_stream import LiveClimateStream, LiveStreamBroadcaster
+from vectis.realtime.state.models import WorldCellState
+from vectis.realtime.state.store import MemoryStateStore
 from vectis.services.analysis_service import AnalysisService
 from vectis.services.dashboard_service import DashboardService
 from vectis.streaming.broadcaster import ConnectionManager
@@ -39,6 +41,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.broadcaster = ConnectionManager()
     # ONE global V3 pipeline, fanned out to every SSE viewer (not one pipeline per connection).
     app.state.live_stream = LiveStreamBroadcaster(LiveClimateStream())
+    # The active cell set the tile endpoint screens — populated by the Session-31 global
+    # ingestion loop (`ingest_into`) when one runs; empty on a fresh boot, never fabricated.
+    app.state.tile_store = MemoryStateStore[WorldCellState]()
     await app.state.live_stream.start()
     log.info("api.startup", env=settings.env, llm_provider=settings.llm_provider)
     yield
@@ -80,6 +85,7 @@ def create_app() -> FastAPI:
         models,
         regions,
         stream,
+        tiles,
     )
 
     app.include_router(health.router)
@@ -90,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(intelligence.router)
     app.include_router(dashboard.router)
     app.include_router(live.router)
+    app.include_router(tiles.router)
     return app
 
 
