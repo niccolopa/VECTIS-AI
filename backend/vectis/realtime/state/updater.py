@@ -38,7 +38,20 @@ VARIABLE_FIELDS: dict[str, str] = {
     "drought": "drought_index",
     "fire_risk": "fire_risk",
     "fire": "fire_risk",
+    # Multi-hazard variables the Session-31 real feeds emit (Session 35): structured
+    # fields the flood / earthquake / cyclone models read, no longer parked in `extra`.
+    "precipitation_mm": "precipitation_mm",
+    "precipitation": "precipitation_mm",
+    "earthquake_magnitude": "earthquake_magnitude",
+    "flood_alert_level": "flood_alert_level",
+    "cyclone_alert_level": "cyclone_alert_level",
 }
+
+#: Fields carrying the *latest reported event truth* (a magnitude, an alert ordinal) —
+#: overwritten, never EMA-blended: averaging a new M7 with an old M5 would fabricate an M6.
+LATEST_VALUE_FIELDS: frozenset[str] = frozenset(
+    {"earthquake_magnitude", "flood_alert_level", "cyclone_alert_level"}
+)
 
 
 class StateUpdater:
@@ -84,6 +97,9 @@ class StateUpdater:
             # Unknown but valid measurement — keep it rather than drop it.
             prior = state.extra.get(observation.variable)
             state.extra[observation.variable] = self._ema(prior, observation.value)
+            return
+        if field in LATEST_VALUE_FIELDS:
+            setattr(state, field, observation.value)
             return
         prior = getattr(state, field)
         setattr(state, field, self._ema(prior, observation.value))

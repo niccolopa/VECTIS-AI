@@ -92,6 +92,33 @@ def test_unknown_variable_is_kept_in_extra() -> None:
     assert state.extra["soil_moisture"] == 0.2
 
 
+def test_multi_hazard_variables_land_in_structured_fields_not_extra() -> None:
+    # Session 35: the real USGS/GDACS/precipitation variables the Session-31 feeds emit
+    # populate first-class fields the hazard models read — no longer parked in `extra`.
+    updater = StateUpdater(MemoryStateStore())
+    updater.apply_observation(_obs("earthquake_magnitude", 6.1))
+    updater.apply_observation(_obs("flood_alert_level", 2.0))
+    updater.apply_observation(_obs("cyclone_alert_level", 3.0))
+    state = updater.apply_observation(_obs("precipitation_mm", 12.5))
+    assert state.earthquake_magnitude == 6.1
+    assert state.flood_alert_level == 2.0
+    assert state.cyclone_alert_level == 3.0
+    assert state.precipitation_mm == 12.5
+    assert state.extra == {}
+
+
+def test_event_truth_fields_overwrite_instead_of_ema_blending() -> None:
+    # A new M7 after an old M5 must report M7 — EMA-averaging would fabricate an M6.
+    updater = StateUpdater(MemoryStateStore(), alpha=0.5)
+    updater.apply_observation(_obs("earthquake_magnitude", 5.0))
+    state = updater.apply_observation(_obs("earthquake_magnitude", 7.0))
+    assert state.earthquake_magnitude == 7.0
+    # Continuous readings still EMA-blend (precipitation is a measurement, not an event).
+    updater.apply_observation(_obs("precipitation_mm", 10.0))
+    state = updater.apply_observation(_obs("precipitation_mm", 20.0))
+    assert state.precipitation_mm == 15.0
+
+
 def test_store_retrieves_versioned_history_newest_first() -> None:
     store = MemoryStateStore()
     updater = StateUpdater(store, alpha=1.0)  # overwrite, so values are easy to read

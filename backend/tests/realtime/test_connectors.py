@@ -101,7 +101,7 @@ def test_open_meteo_outage_falls_back_to_offline_reading() -> None:
 
     events = conn.collect()
     assert {e.to_observation().variable for e in events} == {
-        "temp_anomaly_c", "humidity_pct", "wind_speed_kmh", "drought_index",
+        "temp_anomaly_c", "humidity_pct", "wind_speed_kmh", "drought_index", "precipitation_mm",
     }
 
 
@@ -117,4 +117,4 @@ def test_manager_merges_and_survives_a_dead_feed() -> None:
     mgr = IngestionManager([good, dead], sleep=lambda _: None)
     batch = list(mgr.run(interval=0, max_cycles=1))
 
-    assert len(batch) == 4  # temp/humidity/wind/drought; dead feed contributes nothing, no crash
+    assert len(batch) == 5  # temp/humidity/wind/drought/precip; dead feed contributes nothing, no crash

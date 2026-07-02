@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 # Open-Meteo current-conditions endpoint (keyless, open data). Defaults: °C, %, km/h —
 # which already match the canonical WorldState units below, so no unit conversion is needed.
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-_OPEN_METEO_CURRENT = "temperature_2m,relative_humidity_2m,wind_speed_10m"
+_OPEN_METEO_CURRENT = "temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation"
 
 # Map raw payload keys to the canonical WorldState variable they normalize to.
 # ``offset`` converts an absolute reading to the anomaly the model expects (0 = identity;
@@ -35,6 +35,9 @@ _VARIABLE_MAP: dict[str, tuple[str, float]] = {
     "humidity": ("humidity_pct", 0.0),
     "wind": ("wind_speed_kmh", 0.0),
     "drought": ("drought_index", 0.0),
+    # ponytail: current-hour precipitation, not a trailing accumulation — swap for a real
+    # accumulation window when the flood model is calibrated against real labels.
+    "precipitation": ("precipitation_mm", 0.0),
 }
 
 
@@ -111,6 +114,7 @@ def _parse_open_meteo(raw: dict[str, Any]) -> dict[str, Any]:
     temp = current.get("temperature_2m")
     humidity = current.get("relative_humidity_2m")
     wind = current.get("wind_speed_10m")
+    precipitation = current.get("precipitation")
     if temp is not None:
         reading["temperature"] = float(temp)
     if wind is not None:
@@ -118,6 +122,8 @@ def _parse_open_meteo(raw: dict[str, Any]) -> dict[str, Any]:
     if humidity is not None:
         reading["humidity"] = float(humidity)
         reading["drought"] = _drought_from_humidity(float(humidity))
+    if precipitation is not None:
+        reading["precipitation"] = float(precipitation)
     return reading
 
 
@@ -132,16 +138,33 @@ def _drought_from_humidity(humidity_pct: float) -> float:
 
 def _offline_reading() -> dict[str, Any]:
     """Deterministic clone-safe reading (hot, dry, breezy — a plausible fire day)."""
-    return {"temperature": 34.0, "humidity": 20.0, "wind": 25.0, "drought": _drought_from_humidity(20.0)}
+    return {
+        "temperature": 34.0,
+        "humidity": 20.0,
+        "wind": 25.0,
+        "drought": _drought_from_humidity(20.0),
+        "precipitation": 0.0,
+    }
 
 
 def demo() -> None:
     """Self-check: an Open-Meteo payload normalizes to the four canonical observations."""
-    raw = {"current": {"temperature_2m": 31.0, "relative_humidity_2m": 18.0, "wind_speed_10m": 22.0}}
+    raw = {
+        "current": {
+            "temperature_2m": 31.0,
+            "relative_humidity_2m": 18.0,
+            "wind_speed_10m": 22.0,
+            "precipitation": 1.4,
+        }
+    }
     reading = _parse_open_meteo(raw)
-    assert reading == {"temperature": 31.0, "wind": 22.0, "humidity": 18.0, "drought": 0.82}, reading
+    assert reading == {
+        "temperature": 31.0, "wind": 22.0, "humidity": 18.0, "drought": 0.82, "precipitation": 1.4,
+    }, reading
     obs = {e.to_observation().variable for e in WeatherAPIConnector(base_url=None).normalize(reading)}
-    assert obs == {"temp_anomaly_c", "humidity_pct", "wind_speed_kmh", "drought_index"}, obs
+    assert obs == {
+        "temp_anomaly_c", "humidity_pct", "wind_speed_kmh", "drought_index", "precipitation_mm",
+    }, obs
     print("OK", reading)
 
 
