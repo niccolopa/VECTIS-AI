@@ -211,6 +211,45 @@ def test_t1_budget_reads_the_env_knob(monkeypatch) -> None:  # type: ignore[no-u
     assert len(mgr.drain_t1()) == 2
 
 
+# ── Step 5: back-pressure metrics — the numbers an operator would actually watch ───────
+def test_run_cycle_reports_the_full_back_pressure_picture() -> None:
+    mgr = TierManager(max_t1_per_cycle=2, max_t2_per_cycle=1)
+    scores = {f"hot{i}": 90.0 + i * 0.1 for i in range(4)} | {"cold": 1.0}
+
+    cycle = mgr.run_cycle(scores, t1_runner=lambda batch: {d.cell_id: d.score for d in batch})
+
+    m = cycle.metrics
+    assert m.cycle == 1
+    assert m.hot_set_size == 5  # everything screened, including the cold cell
+    assert m.t1_promoted == 4 and m.t1_executed == 2 and m.t1_queue_depth == 2
+    assert m.t2_executed == 1 and m.t2_queue_depth == 1  # both T1 risks were material
+    assert m.promotions_by_reason == {"score_threshold": 4}
+    assert m.cycle_time_ms > 0.0
+    assert len(cycle.t1_batch) == 2 and len(cycle.board_slots) == 1
+
+
+def test_waited_over_one_cycle_flags_queue_aging_not_a_brief_spike() -> None:
+    mgr = TierManager(max_t1_per_cycle=1, max_t2_per_cycle=1)
+    first = mgr.run_cycle({f"c{i}": 90.0 + i * 0.1 for i in range(3)})
+    # Fresh backlog: two cells wait, but nobody has been passed over twice yet.
+    assert first.metrics.t1_queue_depth == 2
+    assert first.metrics.waited_over_one_cycle == 0
+    second = mgr.run_cycle({})
+    # One more round: the last cell has now been passed over twice — the queue is aging.
+    assert second.metrics.t1_queue_depth == 1
+    assert second.metrics.waited_over_one_cycle == 1
+    third = mgr.run_cycle({})
+    assert third.metrics.t1_queue_depth == 0
+    assert third.metrics.waited_over_one_cycle == 0  # backlog cleared, signal resets
+
+
+def test_run_cycle_without_a_runner_still_serves_queued_t2_waiters() -> None:
+    mgr = TierManager(max_t1_per_cycle=8, max_t2_per_cycle=1)
+    mgr.select_t2({"a": 60.0, "b": 80.0})  # b granted; a waits in the T2 queue
+    cycle = mgr.run_cycle({})  # no sweep, no runner — but the waiter can still win
+    assert [s.cell_id for s in cycle.board_slots] == ["a"]
+
+
 # ── helpers ─────────────────────────────────────────────────────────────────────────────
 def test_total_variation_matches_the_session_22_concept() -> None:
     assert total_variation({"a": 1.0}, {"a": 1.0}) == 0.0

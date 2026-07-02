@@ -42,8 +42,10 @@ Pure arithmetic and bookkeeping — no LLM, no simulation import. The Math Firew
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
-from dataclasses import dataclass, replace
+import time
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from vectis.core.logging import get_logger
@@ -113,6 +115,42 @@ def headline_scores(
     }
 
 
+@dataclass(frozen=True, slots=True)
+class TieringMetrics:
+    """One cycle's back-pressure numbers — what an operator (or autoscaler) watches.
+
+    ``waited_over_one_cycle`` counts cells currently queued (T1 or T2) that have been
+    passed over by more than one budget round: sustained non-zero values mean demand is
+    outrunning the per-cycle budgets and the queues are aging, not just briefly spiking.
+    """
+
+    cycle: int
+    hot_set_size: int  #: cells screened this cycle (the sweep's active set)
+    t1_promoted: int  #: new T0→T1 promotions decided this cycle
+    t1_executed: int  #: deep-analysis slots granted this cycle (≤ max_t1_per_cycle)
+    t1_queue_depth: int  #: T1 candidates still waiting after the drain
+    t2_executed: int  #: board slots granted this cycle (≤ max_t2_per_cycle)
+    t2_queue_depth: int  #: T2 candidates still waiting after selection
+    waited_over_one_cycle: int  #: queued cells passed over by >1 budget round
+    cycle_time_ms: float
+    promotions_by_reason: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class TieringCycle:
+    """Everything one :meth:`TierManager.run_cycle` decided, plus its metrics."""
+
+    t1_batch: list[PromotionDecision]
+    board_slots: list[BoardSlot]
+    metrics: TieringMetrics
+
+
+#: The pluggable expensive stage: runs the full forecast for a T1 batch and returns each
+#: cell's fresh headline risk. In production this is the Session-22 slow path; in tests
+#: and stress runs, a stub.
+T1Runner = Callable[[Sequence[PromotionDecision]], Mapping[CellId, float]]
+
+
 def _env_int(explicit: int | None, default: int, *names: str) -> int:
     """Resolve a budget: explicit arg > first set env var in ``names`` > default."""
     if explicit is not None:
@@ -168,6 +206,10 @@ class TierManager:
         self._t2_queue: dict[CellId, BoardSlot] = {}
         #: headline risk at each cell's last granted board report — re-arms the change gate.
         self._last_reported_risk: dict[CellId, float] = {}
+        #: budget rounds each queued cell has been passed over — the queue-aging signal.
+        self._t1_waits: dict[CellId, int] = {}
+        self._t2_waits: dict[CellId, int] = {}
+        self._cycle = 0
 
     # ── T0 → T1 ───────────────────────────────────────────────────────────────────
     def evaluate(
@@ -222,6 +264,7 @@ class TierManager:
             if decision is not None:
                 if cell_id not in self._t1_queue:
                     promoted.append(decision)
+                    self._t1_waits[cell_id] = 0
                     logger.debug(
                         "[TIER] promote %s -> T1 (%s: score=%.1f shift=%.3f prio=%.1f)",
                         cell_id, decision.reason, score, decision.belief_shift, decision.priority,
@@ -253,6 +296,9 @@ class TierManager:
         batch = ranked[: self._max_t1]
         for decision in batch:
             del self._t1_queue[decision.cell_id]
+            self._t1_waits.pop(decision.cell_id, None)
+        for cell_id in self._t1_queue:  # everyone left was passed over one more round
+            self._t1_waits[cell_id] = self._t1_waits.get(cell_id, 0) + 1
         return batch
 
     # ── T1 → T2 ───────────────────────────────────────────────────────────────────
@@ -284,19 +330,66 @@ class TierManager:
             if risk_moved(prior, risk, self._risk_change_threshold):
                 change = abs(risk - prior) if prior is not None else risk
                 self._t2_queue[cell_id] = BoardSlot(cell_id, risk, change)  # freshest wins
+                self._t2_waits.setdefault(cell_id, 0)
             else:
                 self._t2_queue.pop(cell_id, None)  # pending change evaporated
+                self._t2_waits.pop(cell_id, None)
 
         ranked = sorted(self._t2_queue.values(), key=lambda s: s.change, reverse=True)
         granted = ranked[: self._max_t2]
         for slot in granted:
             del self._t2_queue[slot.cell_id]
+            self._t2_waits.pop(slot.cell_id, None)
             self._last_reported_risk[slot.cell_id] = slot.risk
             logger.debug(
                 "[TIER] board slot -> %s (risk=%.1f, change=%.1f)",
                 slot.cell_id, slot.risk, slot.change,
             )
+        for cell_id in self._t2_queue:  # everyone left was passed over one more round
+            self._t2_waits[cell_id] = self._t2_waits.get(cell_id, 0) + 1
         return granted
+
+    # ── one full cycle, with the numbers an operator watches ─────────────────────
+    def run_cycle(
+        self,
+        scores: Mapping[CellId, float],
+        belief_shifts: Mapping[CellId, float] | None = None,
+        *,
+        t1_runner: T1Runner | None = None,
+    ) -> TieringCycle:
+        """Run one complete tiering cycle: consider → drain T1 → run → select T2.
+
+        ``t1_runner`` is the expensive stage (Monte Carlo + Bayesian) applied to the
+        granted T1 batch; it returns each cell's fresh headline risk, which feeds the T2
+        selection. Without a runner the T2 stage still runs — queued waiters from earlier
+        cycles can win slots — but no new candidates arrive. Returns the batch, the board
+        slots, and the cycle's :class:`TieringMetrics`.
+        """
+        start = time.perf_counter()
+        self._cycle += 1
+
+        promoted = self.consider(scores, belief_shifts)
+        batch = self.drain_t1()
+        risks = t1_runner(batch) if t1_runner is not None and batch else {}
+        slots = self.select_t2(risks)
+
+        waited = sum(
+            1 for w in (*self._t1_waits.values(), *self._t2_waits.values()) if w > 1
+        )
+        reasons: Counter[str] = Counter(d.reason for d in promoted)
+        metrics = TieringMetrics(
+            cycle=self._cycle,
+            hot_set_size=len(scores),
+            t1_promoted=len(promoted),
+            t1_executed=len(batch),
+            t1_queue_depth=len(self._t1_queue),
+            t2_executed=len(slots),
+            t2_queue_depth=len(self._t2_queue),
+            waited_over_one_cycle=waited,
+            cycle_time_ms=(time.perf_counter() - start) * 1000.0,
+            promotions_by_reason=dict(reasons),
+        )
+        return TieringCycle(t1_batch=batch, board_slots=slots, metrics=metrics)
 
 
 def demo() -> None:
