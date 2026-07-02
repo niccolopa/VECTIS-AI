@@ -26,7 +26,7 @@ the LLM board only narrates the figures it is handed.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 
@@ -34,7 +34,7 @@ from vectis.agents.board.schemas import BoardInput, DecisionIntelligenceReport, 
 from vectis.agents.board.service import SimulationBoardService
 from vectis.core.logging import get_logger
 from vectis.core.schemas import RiskBand
-from vectis.realtime.events.base import CellId, GlobalEvent
+from vectis.realtime.events.base import CellId, GlobalEvent, GlobalObservation
 from vectis.realtime.forecasting.bayesian.likelihood import ScenarioProfile
 from vectis.realtime.forecasting.bayesian.priors import ScenarioPriors
 from vectis.realtime.forecasting.bayesian.updater import ContinuousBayesianUpdater
@@ -212,6 +212,20 @@ class ContinuousPipeline:
         posterior = self._bayesian.update_probabilities(state)
         self._enqueue_forecast(_ForecastJob(state.cell_id, state, dict(posterior)))
 
+    def replay_observations(self, observations: Sequence[GlobalObservation]) -> ForecastResult:
+        """Fold observations through the fast path, then run the slow-path math once.
+
+        The synchronous replay seam the calibration backtest drives: identical
+        Kalman → Bayesian → Monte Carlo math to the live flow, minus the queue and
+        the decision board, and without touching the board's change-gate state.
+        """
+        if not observations:
+            raise ValueError("replay_observations needs at least one observation")
+        for observation in observations:
+            state = self._kalman.apply_observation(observation)
+        posterior = self._bayesian.update_probabilities(state)
+        return self._compute_forecast(_ForecastJob(state.cell_id, state, dict(posterior)))
+
     def _enqueue_forecast(self, job: _ForecastJob) -> None:
         """Register the latest job for a cell; queue the cell once while one is pending."""
         self._jobs[job.cell_id] = job  # always keep the freshest state
@@ -343,6 +357,7 @@ def build_default_pipeline(
     *,
     broker: MessageBroker | None = None,
     board: SimulationBoardService | None = None,
+    engine: VectorizedMonteCarloEngine | None = None,
     n_iterations: int = 20_000,
     seed: int = 7,
     region: str = "california",
@@ -371,7 +386,7 @@ def build_default_pipeline(
         broker=broker or MemoryBroker(),
         kalman=kalman,
         bayesian=bayesian,
-        engine=VectorizedMonteCarloEngine(),
+        engine=engine or VectorizedMonteCarloEngine(),
         board=board or SimulationBoardService(),
         base_state=base_state,
         scenarios=scenarios,

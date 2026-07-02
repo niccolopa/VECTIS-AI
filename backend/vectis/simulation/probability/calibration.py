@@ -1,23 +1,22 @@
-"""Calibration — is the engine's confidence *earned*? (blueprint)
+"""Calibration — is the engine's confidence *earned*?
 
 A model can be sharp and wrong: chronically forecasting 90% on events that happen
 60% of the time. Calibration measures the gap between **predicted probabilities**
 and **observed frequencies**, so the Confidence Score from ``uncertainty.py`` can
 be audited against reality rather than trusted blindly.
 
-Session-8 scope is a **blueprint**: the data structure plus the headline metric
-(:func:`brier_score`) are implemented and tested, because they are one-liners and
-give a runnable check. Reliability-diagram binning and recalibration fitting
-(isotonic / Platt scaling) are stubbed with clear contracts — they need a real
-backlog of (prediction, outcome) pairs, which only exists once live FIRMS labels
-land (see HANDOFF Next Steps).
+Session 8 shipped the data structure and :func:`brier_score`; Session 34 completed
+the reliability-diagram binning and recalibration fitting (isotonic / Platt), which
+the calibration backtest (:mod:`vectis.calibration.backtest`) exercises against a
+resolved-forecast backlog. The metrics are backlog-agnostic: they score whatever
+(prediction, outcome) pairs are recorded, whether fixture-based or real FIRMS labels.
 
-Pure ``numpy`` — no LLM in the scoring loop.
+``numpy`` + ``scikit-learn`` fitting — no LLM in the scoring loop.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -55,11 +54,10 @@ def brier_score(records: Sequence[CalibrationRecord]) -> float:
 
 @dataclass
 class Calibrator:
-    """Accumulates forecast/outcome pairs and reports calibration. (blueprint)
+    """Accumulates forecast/outcome pairs and reports calibration.
 
-    Wire each resolved forecast in with :meth:`record`, then read :meth:`summary`.
-    Only :func:`brier_score` is wired today; the reliability curve and a fitted
-    recalibration map are deferred until a real outcome backlog exists.
+    Wire each resolved forecast in with :meth:`record`, then read :meth:`brier`,
+    :meth:`reliability_curve`, or fit a corrective map with :meth:`fit_recalibration`.
     """
 
     records: list[CalibrationRecord] = field(default_factory=list)
@@ -73,21 +71,49 @@ class Calibrator:
         return brier_score(self.records)
 
     def reliability_curve(self, n_bins: int = 10) -> list[tuple[float, float, int]]:
-        """(blueprint) Per-bin (mean predicted, observed frequency, count).
+        """Per-bin (mean predicted, observed frequency, count) — the reliability diagram.
 
         Bins predictions into ``n_bins`` equal-width buckets over ``[0, 1]``; a
-        well-calibrated model lies on the diagonal (predicted ≈ observed). Deferred
-        until there are enough records for the bins to be meaningful.
+        well-calibrated model lies on the diagonal (predicted ≈ observed). Empty
+        bins are omitted rather than reported as zeros.
         """
-        raise NotImplementedError("reliability_curve is a blueprint — needs a FIRMS-label backlog.")
+        if n_bins < 1:
+            raise ValueError("n_bins must be at least 1")
+        predicted = np.array([r.predicted for r in self.records], dtype=float)
+        occurred = np.array([r.occurred for r in self.records], dtype=float)
+        bin_index = np.minimum((predicted * n_bins).astype(int), n_bins - 1)
+        return [
+            (float(predicted[mask].mean()), float(occurred[mask].mean()), int(mask.sum()))
+            for b in range(n_bins)
+            if (mask := bin_index == b).any()
+        ]
 
-    def fit_recalibration(self) -> object:
-        """(blueprint) Fit a monotone recalibration map (isotonic / Platt scaling).
+    def fit_recalibration(self, method: str = "isotonic") -> Callable[[float], float]:
+        """Fit a monotone recalibration map (``isotonic`` or ``platt`` scaling).
 
         Returns a callable ``p_raw -> p_calibrated`` that corrects systematic
-        over/under-confidence. Deferred — fitting needs the same outcome backlog.
+        over/under-confidence, fit on the recorded backlog. Both methods need
+        records of both outcomes — a one-sided backlog cannot identify a map.
         """
-        raise NotImplementedError("fit_recalibration is a blueprint — needs a FIRMS-label backlog.")
+        occurred = [r.occurred for r in self.records]
+        if not (any(occurred) and not all(occurred)):
+            raise ValueError("recalibration needs records of both outcomes")
+        predicted = np.array([r.predicted for r in self.records], dtype=float)
+        outcomes = np.array(occurred, dtype=float)
+
+        if method == "isotonic":
+            from sklearn.isotonic import IsotonicRegression
+
+            iso = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
+            iso.fit(predicted, outcomes)
+            return lambda p: float(iso.predict(np.atleast_1d(p))[0])
+        if method == "platt":
+            from sklearn.linear_model import LogisticRegression
+
+            platt = LogisticRegression()
+            platt.fit(predicted.reshape(-1, 1), outcomes.astype(int))
+            return lambda p: float(platt.predict_proba(np.atleast_1d(p).reshape(-1, 1))[0, 1])
+        raise ValueError(f"unknown recalibration method {method!r} (isotonic|platt)")
 
 
 if __name__ == "__main__":

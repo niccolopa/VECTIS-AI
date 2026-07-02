@@ -18,7 +18,11 @@ from vectis.simulation.probability.bayesian import (
     GaussianBayesianUpdater,
     Observation,
 )
-from vectis.simulation.probability.calibration import CalibrationRecord, brier_score
+from vectis.simulation.probability.calibration import (
+    CalibrationRecord,
+    Calibrator,
+    brier_score,
+)
 from vectis.simulation.probability.uncertainty import (
     confidence_from_entropy,
     confidence_from_variance,
@@ -143,3 +147,41 @@ def test_brier_score_rewards_accuracy():
     assert brier_score(perfect) == 0.0
     assert brier_score(wrong) == 1.0
     assert brier_score([CalibrationRecord(0.5, True), CalibrationRecord(0.5, False)]) == 0.25
+
+
+def _overconfident_calibrator() -> Calibrator:
+    """Forecasts of 0.9 on events that only happen half the time (and 0.1 mirrored)."""
+    cal = Calibrator()
+    for i in range(40):
+        cal.record(0.9, occurred=i % 2 == 0)
+        cal.record(0.1, occurred=i % 4 == 0)
+    return cal
+
+
+def test_reliability_curve_bins_predictions_against_observed_frequency():
+    cal = _overconfident_calibrator()
+    curve = cal.reliability_curve(n_bins=10)
+    assert sum(count for _, _, count in curve) == len(cal.records)  # empty bins omitted
+    by_pred = {round(mean_pred, 1): obs for mean_pred, obs, _ in curve}
+    assert by_pred[0.9] == pytest.approx(0.5)  # said 90%, happened 50%
+    assert by_pred[0.1] == pytest.approx(0.25)
+
+
+def test_fit_recalibration_corrects_overconfidence():
+    cal = _overconfident_calibrator()
+    for method in ("isotonic", "platt"):
+        remap = cal.fit_recalibration(method)
+        assert remap(0.9) < 0.9  # pulled down toward the observed 50%
+        assert remap(0.1) > 0.1  # pulled up toward the observed 25%
+        assert 0.0 <= remap(0.0) <= remap(1.0) <= 1.0  # monotone, stays a probability
+
+
+def test_fit_recalibration_refuses_a_one_sided_backlog():
+    cal = Calibrator()
+    for _ in range(5):
+        cal.record(0.7, occurred=True)
+    with pytest.raises(ValueError, match="both outcomes"):
+        cal.fit_recalibration()
+    cal.record(0.2, occurred=False)
+    with pytest.raises(ValueError, match="unknown recalibration method"):
+        cal.fit_recalibration("splines")
