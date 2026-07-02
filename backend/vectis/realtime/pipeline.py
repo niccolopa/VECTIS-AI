@@ -44,6 +44,7 @@ from vectis.realtime.state.store import MemoryStateStore
 from vectis.realtime.streams.broker import DEFAULT_TOPIC, MemoryBroker, MessageBroker
 from vectis.realtime.streams.consumer import EventConsumer
 from vectis.simulation.engine.runner import VectorizedMonteCarloEngine
+from vectis.simulation.probability.calibration import Calibrator
 from vectis.simulation.probability.uncertainty import (
     confidence_from_entropy,
     posterior_mixture_risk,
@@ -197,6 +198,8 @@ class ContinuousPipeline:
         self._last_risk: dict[CellId, float] = {}
         #: Latest forecast per cell — the pipeline's continuously-updated output.
         self.results: dict[CellId, ForecastResult] = {}
+        #: Resolved-forecast backlog: Brier / reliability as *running* metrics (Session 34).
+        self.calibration = Calibrator()
         self.forecasts_run = 0
         self.reports_generated = 0
 
@@ -211,6 +214,27 @@ class ContinuousPipeline:
         state = self._kalman.apply_observation(observation)
         posterior = self._bayesian.update_probabilities(state)
         self._enqueue_forecast(_ForecastJob(state.cell_id, state, dict(posterior)))
+
+    def resolve_forecast(self, cell_id: CellId, occurred: bool) -> None:
+        """Log ground truth against the cell's latest forecast — the running-metric feed.
+
+        Call when an outcome lands for a cell that has a forecast (e.g. a FIRMS
+        detection confirms a fire, or the forecast window closes quietly). Each
+        resolution appends a :class:`CalibrationRecord`, so :meth:`calibration_summary`
+        is always current — a genuine running metric, not a one-off script output.
+        """
+        result = self.results.get(cell_id)
+        if result is None:
+            raise KeyError(f"no forecast to resolve for cell {cell_id}")
+        self.calibration.record(result.risk_score / 100.0, occurred)
+
+    def calibration_summary(self, n_bins: int = 10) -> dict[str, object]:
+        """Queryable running calibration: resolved count, Brier score, reliability curve."""
+        return {
+            "n_resolved": len(self.calibration.records),
+            "brier": self.calibration.brier(),
+            "reliability": self.calibration.reliability_curve(n_bins),
+        }
 
     def replay_observations(self, observations: Sequence[GlobalObservation]) -> ForecastResult:
         """Fold observations through the fast path, then run the slow-path math once.

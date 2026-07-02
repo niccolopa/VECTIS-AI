@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+
 from vectis.agents.board.service import SimulationBoardService
 from vectis.agents.llm.base import LLMProvider, NarrationResult
 from vectis.realtime import ContinuousPipeline, build_default_pipeline
@@ -136,3 +138,28 @@ def test_unchanged_risk_skips_the_expensive_board() -> None:
     assert pipe.forecasts_run == 1  # the forecast still computes
     assert pipe.reports_generated == 0  # but the board is skipped
     assert pipe.results[CELL].report is None
+
+
+def test_resolved_forecasts_feed_a_running_brier_metric() -> None:
+    """Session 34: outcomes resolved against live forecasts keep calibration queryable."""
+    spy = _SpyLLM()
+    pipe = _pipeline(spy)
+
+    async def scenario() -> None:
+        await pipe._broker.publish(DEFAULT_TOPIC, _drought_event())
+        await pipe.start(max_events=1)
+
+    asyncio.run(scenario())
+
+    predicted = pipe.results[CELL].risk_score / 100.0
+    pipe.resolve_forecast(CELL, occurred=True)
+    pipe.resolve_forecast(CELL, occurred=False)  # a second outcome window for the same cell
+
+    summary = pipe.calibration_summary()
+    assert summary["n_resolved"] == 2
+    expected = ((predicted - 1.0) ** 2 + predicted**2) / 2
+    assert summary["brier"] == pytest.approx(expected)
+    assert sum(count for _, _, count in summary["reliability"]) == 2
+
+    with pytest.raises(KeyError, match="no forecast to resolve"):
+        pipe.resolve_forecast("never-forecast-cell", occurred=True)
