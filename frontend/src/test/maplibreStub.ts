@@ -2,12 +2,28 @@
 // the API surface RiskMap uses so components render without a real GL context.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// The fixed viewport every FakeMap reports — tests assert tile requests are scoped
+// to exactly these bounds (California-ish, nothing else on the planet).
+export const STUB_BOUNDS = { west: -125, south: 32, east: -114, north: 42, zoom: 8 };
+
 class FakeMap {
   constructor(_opts: any) {}
   addControl() {}
   on() {}
   once() {}
   remove() {}
+  getBounds() {
+    return {
+      getWest: () => STUB_BOUNDS.west,
+      getSouth: () => STUB_BOUNDS.south,
+      getEast: () => STUB_BOUNDS.east,
+      getNorth: () => STUB_BOUNDS.north,
+    };
+  }
+  getZoom() {
+    return STUB_BOUNDS.zoom;
+  }
+  flyTo(_opts: any) {}
   getSource() {
     return undefined;
   }

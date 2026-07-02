@@ -9,4 +9,8 @@ export const qk = {
   datasets: ["datasets"] as const,
   twins: ["dashboard", "twins"] as const,
   twin: (id: string) => ["dashboard", "twins", id] as const,
+  tiles: (v: { west: number; south: number; east: number; north: number; zoom: number }) =>
+    // Round the bbox so sub-meter pan jitter doesn't mint new cache entries.
+    ["tiles", v.west.toFixed(3), v.south.toFixed(3), v.east.toFixed(3), v.north.toFixed(3), Math.round(v.zoom)] as const,
+  cellBrief: (cellId: string) => ["cells", cellId, "brief"] as const,
 };

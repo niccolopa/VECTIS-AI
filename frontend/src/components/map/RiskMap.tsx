@@ -8,7 +8,7 @@ import type { CellRisk, RegionInfo } from "@/types/api";
 // console shows actual geography (continents, coastlines) under the risk cells and reads
 // as a global platform. If the tiles can't load (offline), the dark background shows
 // through and the risk cells still render.
-const DARK_STYLE: StyleSpecification = {
+export const DARK_STYLE: StyleSpecification = {
   version: 8,
   sources: {
     basemap: {
