@@ -8,8 +8,14 @@ The Session-34 package. Everything under here exists to answer one question hone
 - :mod:`vectis.calibration.fit` — fitting the logistic coefficients against that dataset.
 - :mod:`vectis.calibration.backtest` — out-of-sample replay through the live forecasting
   path, scoring real predictive skill (ROC-AUC, Brier, reliability).
-- :mod:`vectis.calibration.thresholds` — re-deriving the tiering promotion thresholds
-  from the (re)calibrated model's measured error curve.
+
+Threshold re-derivation is a *procedure*, not a module: after a real coefficient fit
+lands, re-run the Session-32 gap measurement (``tests/realtime/test_screening.py``)
+against the deployed model and re-derive ``TierManager``'s promotion constants from the
+new gap table, the same way Session 33 derived them. Session 34 re-ran it with no
+artifact deployed (no real fit was possible — no FIRMS credentials): the gap was
+unchanged (MAD 3.61, max 13.23), so the Session-33 constants stand. See
+``docs/calibration_report.md``.
 
 Honesty contract (project-wide since V2, enforced here): calibration **never fabricates**.
 If credentials or network are unavailable, the pipeline raises with instructions instead of
