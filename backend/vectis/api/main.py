@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from vectis.api.routers.tiles import TileCache
 from vectis.core.config import get_settings
 from vectis.core.exceptions import VectisError
 from vectis.core.logging import configure_logging, get_logger
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # The active cell set the tile endpoint screens — populated by the Session-31 global
     # ingestion loop (`ingest_into`) when one runs; empty on a fresh boot, never fabricated.
     app.state.tile_store = MemoryStateStore[WorldCellState]()
+    app.state.tile_cache = TileCache()
     await app.state.live_stream.start()
     log.info("api.startup", env=settings.env, llm_provider=settings.llm_provider)
     yield

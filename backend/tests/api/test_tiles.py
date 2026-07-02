@@ -6,7 +6,7 @@ import ast
 from pathlib import Path
 
 from vectis.api.routers import tiles
-from vectis.api.routers.tiles import build_tile, h3_resolution_for_zoom
+from vectis.api.routers.tiles import TileCache, build_tile, h3_resolution_for_zoom, serve_tile
 from vectis.realtime.state.cell_id import assign_cell_id, children_cell_ids, parent_cell_id
 from vectis.realtime.state.models import WorldCellState
 
@@ -175,3 +175,76 @@ def test_rollup_computes_on_demand_from_screening_data_round_trip() -> None:
     by_id = {c.cell_id: c for c in coarse}
     assert set(by_id) == {parent, parent_cell_id(outsider.cell_id, 2)}
     assert all(c.source_cells == 1 for c in coarse)
+
+
+# ── Step 10: tile caching — TTL + LRU keyed on contributing cell state versions ─────────
+def test_cache_hits_on_identical_viewport_and_misses_when_a_contributing_cell_updates() -> None:
+    import random
+    import statistics
+    import time as _time
+
+    from vectis.realtime.state.store import MemoryStateStore
+
+    rng = random.Random(36)
+    store: MemoryStateStore[WorldCellState] = MemoryStateStore()
+    # A real-shaped active set: 2,000 cells scattered over the western US.
+    for _ in range(2_000):
+        lat, lon = rng.uniform(31.0, 49.0), rng.uniform(-125.0, -102.0)
+        store.save_state(
+            WorldCellState(cell_id=assign_cell_id(lat, lon), temperature=rng.uniform(8.0, 42.0))
+        )
+    cache = TileCache()
+    view_a = {"west": -125.0, "south": 32.0, "east": -114.0, "north": 42.0, "zoom": 8}
+    view_b = {"west": -110.0, "south": 32.0, "east": -103.0, "north": 42.0, "zoom": 6}
+
+    first = serve_tile(store, cache, **view_a)
+    assert cache.misses == 1 and first.cells
+
+    # Repeated pan/zoom over the same viewport: every call after the first is a hit,
+    # and the hit path is sub-millisecond (median — the load-test claim, measured).
+    timings = []
+    for _ in range(50):
+        start = _time.perf_counter()
+        again = serve_tile(store, cache, **view_a)
+        timings.append(_time.perf_counter() - start)
+    assert cache.hits == 50 and again.cells == first.cells
+    median = statistics.median(timings)
+    print(f"\n[tiles] cache-hit median {median * 1000:.3f} ms over 50 calls (2,000-cell hot set)")
+    assert median < 0.001, f"cache hit not sub-ms: {median * 1000:.3f} ms"
+
+    # Warm a second, disjoint viewport…
+    serve_tile(store, cache, **view_b)
+    hits_before, misses_before = cache.hits, cache.misses
+
+    # …then genuinely update one cell inside viewport A (version bumps, as the real
+    # updater does): only A's tile is invalidated, B keeps hitting.
+    victim = next(
+        s for s in store.active_states()
+        if -125.0 <= tiles._cell_center(s.cell_id)[1] <= -114.0
+        and 32.0 <= tiles._cell_center(s.cell_id)[0] <= 42.0
+    )
+    updated = victim.model_copy(deep=True)
+    updated.temperature = 44.0
+    updated.version = victim.version + 1
+    store.save_state(updated)
+
+    hot_a = serve_tile(store, cache, **view_a)
+    assert cache.misses == misses_before + 1  # A recomputed with the fresh state
+    assert hot_a.cells != first.cells
+    serve_tile(store, cache, **view_b)
+    assert cache.hits == hits_before + 1  # B untouched by A's update — still a hit
+
+
+def test_cache_ttl_expires_and_lru_bounds_memory() -> None:
+    cache = TileCache(maxsize=2, ttl_seconds=10.0)
+    unchanged = lambda ids: (1,) * len(ids)  # noqa: E731 — every member still at version 1
+    cache.put("a", ["x"], (1,), [], now=0.0)
+    assert cache.get("a", unchanged, now=5.0) == []  # fresh + versions match → hit
+    assert cache.get("a", unchanged, now=11.0) is None  # expired → miss
+    cache.put("a", ["x"], (1,), [], now=20.0)
+    assert cache.get("a", lambda ids: (2,), now=21.0) is None  # version moved → miss
+    cache.put("a", ["x"], (1,), [], now=20.0)
+    cache.put("b", ["x"], (1,), [], now=21.0)
+    cache.put("c", ["x"], (1,), [], now=22.0)  # evicts "a" (LRU, maxsize 2)
+    assert len(cache) == 2
+    assert cache.get("a", unchanged, now=23.0) is None
