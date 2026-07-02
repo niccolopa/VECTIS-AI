@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     usgs_base_url: str = "https://earthquake.usgs.gov"
     gdacs_base_url: str = "https://www.gdacs.org"
 
+    # Historical ERA5 reanalysis for calibration (Session 34): Open-Meteo's keyless
+    # archive API, which serves the Copernicus ERA5 dataset. Direct CDS access would
+    # add VECTIS_CDS_API_KEY — see vectis/calibration/data/era5.py for the trade-off.
+    era5_base_url: str = "https://archive-api.open-meteo.com"
+
     # Sluice-only: the FIRMS MAP_KEY pool the gateway holds and fails over across for
     # reliability (comma-separated). Empty → falls back to the single ``firms_api_key``.
     # NOT a rate-limit-evasion pool — see vectis/ingress/sluice.py.
