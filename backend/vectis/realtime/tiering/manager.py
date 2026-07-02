@@ -41,12 +41,14 @@ Pure arithmetic and bookkeeping — no LLM, no simulation import. The Math Firew
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
 from vectis.core.logging import get_logger
 from vectis.realtime.events.base import CellId
+from vectis.realtime.pipeline import DEFAULT_RISK_CHANGE_THRESHOLD, risk_moved
 from vectis.realtime.screening.base import ScreeningScore
 
 logger = get_logger(__name__)
@@ -65,6 +67,15 @@ TRANSITION_BAND: tuple[float, float] = (5.0, 85.0)
 T1_SCORE_CUTOFF = 85.0
 
 PromotionReason = Literal["score_threshold", "belief_shift", "transition_band_trending_up"]
+
+
+@dataclass(frozen=True, slots=True)
+class BoardSlot:
+    """One granted T2 slot: convene the decision board for this cell this cycle."""
+
+    cell_id: CellId
+    risk: float  #: current headline risk (0–100) from the fresh T1 forecast
+    change: float  #: magnitude of the move since the last report (== risk if never reported)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +113,17 @@ def headline_scores(
     }
 
 
+def _env_int(explicit: int | None, default: int, *names: str) -> int:
+    """Resolve a budget: explicit arg > first set env var in ``names`` > default."""
+    if explicit is not None:
+        return explicit
+    for name in names:
+        raw = os.environ.get(name)
+        if raw:
+            return int(raw)
+    return default
+
+
 class TierManager:
     """Decide which active cells get promoted from screened-only (T0) to deep analysis.
 
@@ -120,6 +142,8 @@ class TierManager:
         transition_band: tuple[float, float] = TRANSITION_BAND,
         belief_shift_threshold: float = 0.2,
         trend_epsilon: float = 0.5,
+        risk_change_threshold: float = DEFAULT_RISK_CHANGE_THRESHOLD,
+        max_t2_per_cycle: int | None = None,
     ) -> None:
         self._t1_score_cutoff = t1_score_cutoff
         self._band_low, self._band_high = transition_band
@@ -127,9 +151,18 @@ class TierManager:
         #: minimum score rise vs the previous cycle to count as "trending up" — damps
         #: float jitter from re-screening near-identical state.
         self._trend_epsilon = trend_epsilon
+        self._risk_change_threshold = risk_change_threshold
+        #: hard global cap on board/LLM narrations per cycle — the T2 budget.
+        self._max_t2 = _env_int(
+            max_t2_per_cycle, 5, "VECTIS_MAX_T2_PER_CYCLE", "VECTIS_MAX_BOARD_REPORTS_PER_CYCLE"
+        )
 
         #: previous cycle's screen score per cell — the memory the trend gate reads.
         self._last_score: dict[CellId, float] = {}
+        #: T2 candidates awaiting a board slot; losers of a budget round wait here.
+        self._t2_queue: dict[CellId, BoardSlot] = {}
+        #: headline risk at each cell's last granted board report — re-arms the change gate.
+        self._last_reported_risk: dict[CellId, float] = {}
 
     # ── T0 → T1 ───────────────────────────────────────────────────────────────────
     def evaluate(
@@ -183,6 +216,49 @@ class TierManager:
                 )
             self._last_score[cell_id] = score
         return decisions
+
+    # ── T1 → T2 ───────────────────────────────────────────────────────────────────
+    @property
+    def t2_queue_depth(self) -> int:
+        """T2 candidates still waiting for a board slot."""
+        return len(self._t2_queue)
+
+    def select_t2(self, risks: Mapping[CellId, float]) -> list[BoardSlot]:
+        """Grant this cycle's board slots: the Session-22 change gate, then the hard budget.
+
+        ``risks`` are the fresh T1 headline risks computed this cycle. Two gates compose:
+
+        1. **Change gate** — the pipeline's own :func:`risk_moved` at global scope: a fresh
+           risk becomes a T2 candidate only if it moved materially since the cell's last
+           report. A *queued* candidate whose fresh risk no longer moves materially is
+           withdrawn (the change it was queued for evaporated); with no fresh risk this
+           cycle it waits unchanged.
+        2. **Budget gate** — of all queued candidates, only the top ``max_t2_per_cycle`` by
+           magnitude of change (== absolute risk for a never-reported cell) get a slot.
+           Losers **wait** in the queue for the next cycle — never silently dropped.
+
+        A cell can pass the change gate and still lose the budget gate when hotter cells
+        compete for the same slots. Granted cells are recorded as reported, which is what
+        re-arms their change gate for the next material move.
+        """
+        for cell_id, risk in risks.items():
+            prior = self._last_reported_risk.get(cell_id)
+            if risk_moved(prior, risk, self._risk_change_threshold):
+                change = abs(risk - prior) if prior is not None else risk
+                self._t2_queue[cell_id] = BoardSlot(cell_id, risk, change)  # freshest wins
+            else:
+                self._t2_queue.pop(cell_id, None)  # pending change evaporated
+
+        ranked = sorted(self._t2_queue.values(), key=lambda s: s.change, reverse=True)
+        granted = ranked[: self._max_t2]
+        for slot in granted:
+            del self._t2_queue[slot.cell_id]
+            self._last_reported_risk[slot.cell_id] = slot.risk
+            logger.debug(
+                "[TIER] board slot -> %s (risk=%.1f, change=%.1f)",
+                slot.cell_id, slot.risk, slot.change,
+            )
+        return granted
 
 
 def demo() -> None:

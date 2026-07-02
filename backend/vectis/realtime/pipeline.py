@@ -62,6 +62,21 @@ from vectis.simulation.schemas import (
 
 logger = get_logger(__name__)
 
+#: Default minimum absolute move in headline risk (0–100) since the last report before the
+#: expensive decision board re-runs — the Session-22 churn damper.
+DEFAULT_RISK_CHANGE_THRESHOLD = 5.0
+
+
+def risk_moved(prior: float | None, current: float, threshold: float) -> bool:
+    """The Session-22 board change-gate: has headline risk moved materially since the last
+    report? A never-reported cell always counts as moved — the first look is material.
+
+    Factored to a module function so the tiering layer (Session 33) applies the *same* gate
+    at global scope instead of duplicating it.
+    """
+    return prior is None or abs(current - prior) >= threshold
+
+
 # Human label per dominant scenario, for the report's primary driver (firewall-safe text).
 _DRIVER_LABELS: dict[str, str] = {
     "baseline": "Prevailing seasonal conditions",
@@ -160,7 +175,7 @@ class ContinuousPipeline:
         scenarios: ScenarioSet,
         config: SimulationConfig,
         topic: str = DEFAULT_TOPIC,
-        risk_change_threshold: float = 5.0,
+        risk_change_threshold: float = DEFAULT_RISK_CHANGE_THRESHOLD,
     ) -> None:
         self._broker = broker
         self._kalman = kalman
@@ -225,8 +240,7 @@ class ContinuousPipeline:
         result = await asyncio.to_thread(self._compute_forecast, job)
 
         prior_risk = self._last_risk.get(job.cell_id)
-        moved = prior_risk is None or abs(result.risk_score - prior_risk) >= self._risk_change_threshold
-        if moved:
+        if risk_moved(prior_risk, result.risk_score, self._risk_change_threshold):
             # The board is LLM-bound (network/CPU) — also keep it off the loop.
             result.report = await asyncio.to_thread(self._board.analyze, self._board_input(result))
             self.reports_generated += 1
