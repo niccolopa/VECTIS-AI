@@ -4,7 +4,24 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-07-02** · End of **Session 33** (Triggered Deep Analysis — the tiering
+Last updated: **2026-07-02** · End of **Session 34** (Calibration & Validation — **COMPLETE,
+with the explicit caveat that no real historical calibration data was ever available in this
+environment**: no FIRMS MAP_KEY or CDS credential existed across all three attempts, so the
+full acquisition → join → fit → backtest pipeline (`vectis/calibration/`) is built and tested
+end to end but has **never run against real fire history**, and the deployed wildfire
+coefficients remain the Session-7 illustrative priors. Shipped: FIRMS-archive + keyless
+Open-Meteo/ERA5 acquisition clients that *raise with instructions* rather than fabricate;
+the labeled cell-day join with provenance manifests; `fit.py` (unregularized
+`LogisticRegression`, `ignition_sources` honestly carried, artifact with full provenance)
+behind a new `default_wildfire_model()` seam the engine *and* the screen both default
+through; `backtest.py` replaying temporally-held-out cell-days through the **real** live
+path via `ContinuousPipeline.replay_observations` (ROC-AUC / Brier / reliability), which
+completed the Session-8 `Calibrator` stubs (`reliability_curve`, `fit_recalibration`
+isotonic/Platt); running Brier via `pipeline.resolve_forecast()` + `calibration_summary()`;
+Step-6 re-measurement of the S32 gap (unchanged: MAD 3.61 / max 13.23 — `TierManager`
+constants deliberately untouched); and `docs/calibration_report.md`, which leads with the
+no-real-data caveat. **241 backend tests pass** (+1 network-gated skip; was 227), ruff +
+mypy clean. See the Session 34 section directly below.) · End of **Session 33** (Triggered Deep Analysis — the tiering
 engine: new `vectis/realtime/tiering/` package whose `TierManager` makes planetary scale
 computationally bounded — **T0** (screened only, Session 32) → **T1** (full Monte Carlo +
 Bayesian) → **T2** (decision board / LLM), every promotion under a hard, never-exceeded per-cycle
@@ -131,6 +148,133 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 34 — Calibration & Validation (the credibility session)
+
+**Goal**: Retire the standing credibility debt from Session 7: the wildfire logistic's
+coefficients were illustrative hand-tuned priors, never fit against reality. Build the
+pipeline that fits them against real NASA FIRMS fire/no-fire labels joined with ERA5
+weather history, backtest the live forecasting path out of sample (ROC-AUC, Brier,
+reliability), make calibration a running metric, and re-derive the Session-33 tiering
+thresholds from whatever model ends up deployed — all without ever fabricating data.
+
+**Current Progress**: Session 34 (**Calibration & Validation — COMPLETE, with the explicit
+caveat that no real historical calibration data was ever available in this environment**).
+No FIRMS MAP_KEY and no CDS credential existed at any point across all three attempts, so
+the pipeline is fully built and tested but **has never been run against real historical
+fire data**, and production still runs on the Session-7 illustrative priors. Seven atomic
+step commits (Steps 1–2 from the earlier interrupted attempts, verified; Steps 3–7 this
+pass) + this handoff. Backend **241 pytest pass** (+1 network-gated skip; was 213 at the
+end of S33), `ruff` + `mypy` clean, working tree clean.
+
+- **Step 1 — historical data acquisition** (`feat: add historical FIRMS + ERA5 acquisition
+  pipeline for calibration`, `47a2d30`). `vectis/calibration/data/`: `FirmsArchiveClient`
+  reads the FIRMS area-CSV **standard-processing archive** (`VIIRS_SNPP_SP`, ≤10-day
+  chunks, reusing the live connector's CSV parser); `Era5Client` reads hourly ERA5 via
+  **Open-Meteo's keyless `/v1/era5` archive** (same Copernicus data, zero credentials,
+  canonical units) and aggregates to fire-weather daily summaries (max temp / max wind /
+  min RH / precip sum). The honesty contract is structural: with no key, FIRMS **raises
+  `CalibrationDataError` with instructions** — there is deliberately no offline-fallback
+  label source, because fabricated labels would poison a fit.
+- **Step 2 — the spatial-temporal join** (`feat: join FIRMS labels with ERA5 weather into a
+  versioned cell-day dataset`, `abd2a01`). Unit of observation: one H3 res-5 **cell-day**.
+  Positives = deduplicated FIRMS detections on their `assign_cell_id` cell; negatives =
+  seeded, reproducible sample of no-fire cell-days from the same region/window (ratio
+  recorded in the manifest — it sets the base rate the intercept absorbs). Features use
+  the **serve-time transforms** (same ~22 °C climatology as `KALMAN_TO_WORLD` and the
+  screen; trailing-30-day rainfall anomaly ending the day *before* the label; ERA5 holes
+  dropped and counted, never filled). Written under `data/processed/calibration/` with a
+  provenance manifest; `python -m vectis.calibration.data.build` is the one-command entry.
+- **Step 3 — coefficient fitting behind one seam** (`feat: fit wildfire logistic
+  coefficients and load them through one default seam`, `edbacfa`). `fit.py` fits the
+  exact `WildfireHazardModel` functional form with an **unregularized**
+  `LogisticRegression` (a penalty would silently shrink coefficients the system treats as
+  effect sizes). `ignition_sources` is **carried at the prior and recorded as carried** —
+  FIRMS/ERA5 have no ignition observable, and an unidentifiable coefficient must not be
+  presented as fitted. The artifact (coefficients + provenance + the previous priors) goes
+  to `artifacts/calibration/wildfire_coefficients.json`, where the new
+  `default_wildfire_model()` loads it; the Monte Carlo engine and the screening index now
+  both default through that seam, so a real fit deploys as a pure parameter change. Tests
+  prove recovery of known coefficients from synthetic rows. **No artifact exists here** —
+  a fresh clone (and this repo) still runs the priors.
+- **Step 4 — the backtesting harness** (`feat: backtest held-out cell-days through the live
+  pipeline…`, `7d8401d`). `backtest.py`: **temporal split** (train strictly precedes
+  holdout — a shuffled split would leak autocorrelated weather), fit on the early slice,
+  replay the late slice through the **actual live components** via a new synchronous
+  `ContinuousPipeline.replay_observations` seam (same Kalman → Bayesian → Monte Carlo
+  math, no queue, no board), scoring headline risk as a probability: ROC-AUC, Brier,
+  reliability curve. This completed the two Session-8 `Calibrator` blueprints:
+  `reliability_curve` (equal-width bins, empty bins omitted) and `fit_recalibration`
+  (isotonic / Platt), both refusing one-sided backlogs. Fixture-tested (a steep known
+  logistic → the replayed live path must score ROC-AUC > 0.7 out of sample).
+- **Step 5 — running calibration metrics** (`feat: expose running Brier and reliability
+  from resolved live forecasts`, `0786adf`). `ContinuousPipeline` owns a `Calibrator`:
+  `resolve_forecast(cell_id, occurred)` logs ground truth against the cell's latest
+  forecast as it lands; `calibration_summary()` returns resolved count, running Brier,
+  and the reliability curve on demand. A metric, not a script.
+- **Step 6 — thresholds explicitly unchanged** (`docs: record that tiering thresholds
+  stand…`, `8a7eb65`). The S32 gap measurement was re-run against the actually-deployed
+  model. No artifact ⇒ the deployed model is byte-for-byte the prior model ⇒ the gap is
+  identical (**MAD 3.61, max 13.23**), so `TierManager`'s constants (band [5, 85), cutoff
+  85, +13.23 correction) remain derived from a still-valid table and were **deliberately
+  not touched** — changing them would have been activity, not information.
+- **Step 7 — the calibration report** (`docs: write the Session 34 calibration report…`,
+  `e814c1f`). `docs/calibration_report.md` **leads** with the no-real-data caveat, then:
+  the one credential a future run needs (a **free FIRMS MAP_KEY** — ERA5 is keyless via
+  Open-Meteo, `VECTIS_CDS_API_KEY` is *not* required), the exact two-command live run,
+  fitted-vs-illustrative coefficients (one honest column), fixture-only backtest scope,
+  the threshold no-change justification, and limitations (arson, sub-grid wind,
+  representativeness — n/a until a real sample exists, and said so).
+
+**What Worked**:
+- **Forensic-first recovery.** This session began by reconstructing state from `git log` /
+  `git status` / reading the actual modules instead of trusting prior summaries — and
+  found Steps 1–2 committed and solid, Step 3 half-applied in the working tree
+  (`fit.py` untracked, wiring uncommitted), and Steps 4–7 absent. Nothing already
+  committed was redone.
+- **One default seam (`default_wildfire_model`) instead of scattered constructors.** The
+  engine and the screen both construct through it, so screen-vs-engine consistency is
+  structural and a future real fit deploys with zero code edits.
+- **`replay_observations` on the pipeline itself** kept the backtest honest: it drives the
+  literal production math rather than a reimplementation that would drift. One small
+  public method was the entire seam.
+- **Keyless ERA5 via Open-Meteo's archive** collapsed the credential surface to a single
+  free FIRMS MAP_KEY — the difference between "get two accounts approved" and "paste one
+  key" for whoever finally runs this live.
+- **Refusing to fit is a feature.** Single-class datasets, one-sided calibration backlogs,
+  keyless FIRMS fetches: every impossible ask raises with instructions instead of
+  producing a plausible-looking number.
+
+**What Didn't Work**:
+- **Two prior attempts died to transient network errors** ("Connection closed
+  mid-response"), one inside a devcontainer, one after moving back to local Windows —
+  neither was a logic or code failure. The second interruption left Step 3 half-applied
+  (untracked `fit.py`, uncommitted wiring), which is exactly why this pass started
+  forensic. If a session dies mid-step again: check `git status` for stragglers before
+  believing any summary.
+- **No FIRMS/CDS credentials, confirmed three times.** Do not re-attempt the live fetch
+  without first securing a MAP_KEY (free, minutes:
+  https://firms.modaps.eosdis.nasa.gov/api/map_key/) — every re-check wasted session time
+  reaching the same answer. `VECTIS_CDS_API_KEY` is *not* needed (ERA5 is keyless here).
+- **The devcontainer detour left droppings**: npm-platform churn in
+  `frontend/package-lock.json` (reverted) and a `.devcontainer/` folder (committed as
+  chore — it is real, working config).
+- **The `thresholds` module promised in the package docstring was never the right
+  shape** — re-derivation is a *procedure* (re-run the gap measurement, re-derive the
+  constants) documented in the report, not a speculative module. The docstring was
+  corrected rather than the module built.
+
+**Next Steps**: **Session 35 — Multi-Hazard Models (flood, earthquake impact, cyclone
+risk)**: real `HazardModel` + `ScreeningIndex` implementations for the hazards the event
+stream already observes but honestly refuses to score (`UNSCREENED_HAZARDS`). **Standing
+prerequisite, before the terminal's confidence numbers are treated as trustworthy**: the
+moment FIRMS credentials become available, run the real Session-34 calibration —
+`data.build` → `fit` → `backtest` (documented in `docs/calibration_report.md`) — deploy
+the artifact, re-run the gap measurement, and re-derive the tiering thresholds from the
+calibrated model's real error curve. Until that run happens, every risk number the
+terminal shows rests on illustrative priors.
 
 ---
 
