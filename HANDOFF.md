@@ -4,7 +4,26 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-07-01** · End of **Session 32** (The Screening Layer — a cheap global risk
+Last updated: **2026-07-02** · End of **Session 33** (Triggered Deep Analysis — the tiering
+engine: new `vectis/realtime/tiering/` package whose `TierManager` makes planetary scale
+computationally bounded — **T0** (screened only, Session 32) → **T1** (full Monte Carlo +
+Bayesian) → **T2** (decision board / LLM), every promotion under a hard, never-exceeded per-cycle
+budget (`VECTIS_MAX_T1_PER_CYCLE` default 64, `VECTIS_MAX_T2_PER_CYCLE` /
+`VECTIS_MAX_BOARD_REPORTS_PER_CYCLE` default 5). Promotion is **shape-aware**, built around
+Session 32's measured low-bias: promote on screen ≥ 85 (the saturated tail, where the screen was
+measured accurate to ≤ 3.57 pts and biased one-sided low), **or** belief shift ≥ 0.2 TVD, **or**
+inside the **[5, 85) transition band while trending up** — exactly where the screen quietly
+under-reads by up to 13.23 pts — with band cells ranked **bias-corrected (+13.23)** in the
+priority queue. Every decision carries an auditable reason. T2 **composes** the literally-reused
+Session-22 change gate (`risk_moved`, factored out of `pipeline.py`) with the hard top-N budget;
+budget losers **wait** in queues, never dropped. Per-cycle `TieringMetrics` expose queue depths,
+cycle time, and a queue-aging signal. Global-storm stress (`make storm`): 20k active cells, 4,000
+crossing the threshold **simultaneously** → T1 executions pinned at exactly 256/cycle, cycle time
+flat (calm median 92 ms, worst 282 ms, noise-dominated), monotone post-storm drain, T1 queue empty
+at cycle 24, every promoted cell served; honest finding: the T2 board budget is the tightest
+bottleneck (~3,800-cell narration backlog at 8/cycle). **213 backend tests pass** (incl. 6 slow,
++1 network-gated skip), ruff + mypy clean. See the Session 33 section directly below.) · End of
+**Session 32** (The Screening Layer — a cheap global risk
 index: added **Tier 0**, a near-free vectorized risk score over the *active* cell set, completely
 decoupled from the expensive Monte Carlo + Bayesian + board pipeline. A pluggable **per-hazard**
 `ScreeningIndex` registry (`vectis/realtime/screening/`) mirrors how `HazardModel`s plug into the
@@ -112,6 +131,149 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 33 — Triggered Deep Analysis (the tiering engine)
+
+**Goal**: Build the single mechanism that makes planetary scale computationally bounded: a
+`TierManager` that decides, out of every active cell, which few get promoted from the cheap
+Session-32 screen (**T0**) to the expensive Monte Carlo + Bayesian forecast (**T1**) and which of
+those get a decision-board/LLM narration (**T2**) — under hard, measured, never-exceeded per-cycle
+budgets, so the system degrades gracefully (deeper queues) instead of melting under a global spike.
+The one design constraint that mattered: Session 32 proved the screen's error is **biased low in
+the mid-risk transition band** (up to −13.23 pts), so promotion must be shape-aware, not a single
+naive cutoff blind to where the screen is quietly wrong.
+
+**Current Progress**: Session 33 (**Triggered Deep Analysis — COMPLETE**). Six atomic step
+commits + this handoff. Backend **213 pytest pass** (207 fast + 6 slow, +1 network-gated skip;
+was 180), `ruff` + `mypy` clean, working tree clean.
+
+- **Step 1 — shape-aware T0→T1 gates** (`feat: add TierManager with shape-aware T0-to-T1
+  promotion gates`). New `vectis/realtime/tiering/` (`manager.py`). `TierManager.consider()` takes
+  the sweep's headline scores (`headline_scores()` collapses the Session-32
+  `{cell: {hazard: score}}` to one score per cell, worst hazard wins) plus per-cell belief shifts
+  (`total_variation()` — the Session-22 TVD concept restated over the pipeline's posterior dicts)
+  and promotes through **three auditable gates**: `score_threshold` (screen ≥ `T1_SCORE_CUTOFF`
+  = 85 — the saturated tail where S32 measured the screen accurate to ≤ 3.57 pts, and the bias is
+  one-sided low so the truth can only be higher); `belief_shift` (TVD ≥ 0.2 — something real
+  changed regardless of absolute score); `transition_band_trending_up` (score in
+  `TRANSITION_BAND` = **[5, 85)** *and* rising by > `trend_epsilon` — the band where the screen
+  under-reads). Band bounds are **derived from the measured S32 gap table**, not guessed: every
+  measured point whose gap exceeded the 5-pt materiality threshold screened between 6.45 and
+  38.34; [5, 85) brackets that with margin and meets the cutoff at 85 so the score axis has no
+  dead zone. Every `PromotionDecision` records cell, reason, score, shift, and priority — the
+  audit trail.
+- **Step 2 — the bounded board budget** (`feat: bound T2 board narration with a hard global
+  budget`). `select_t2()` composes two gates: (1) the **Session-22 change gate, literally
+  reused** — `risk_moved()` was factored out of `ContinuousPipeline._run_forecast` into a
+  `pipeline.py` module function (same semantics, same `DEFAULT_RISK_CHANGE_THRESHOLD = 5.0`), so
+  tiering applies the *identical* gate at global scope rather than duplicating it; (2) the hard
+  budget — only the top-N queued candidates by magnitude of change (absolute risk for a
+  never-reported cell) get a slot, N from `VECTIS_MAX_T2_PER_CYCLE` /
+  `VECTIS_MAX_BOARD_REPORTS_PER_CYCLE` (default 5). Tested interaction: a cell **can pass the
+  change gate and still lose the budget gate** to hotter cells — it waits and wins a later cycle.
+  A queued candidate whose fresh risk drifts back near its last report is withdrawn (the change it
+  was queued for evaporated); granted slots record last-reported risk, re-arming the gate.
+- **Step 3 — the budgeted T1 priority queue** (`feat: drain T1 candidates through a budgeted
+  priority queue that waits, never drops`). Promotions land in a per-cell queue ranked by the
+  **bias-corrected** promotion signal: a transition-band cell competes at `score + 13.23` (the
+  measured worst under-read), so a band cell at 80 outranks a tail cell at 90 — the
+  shape-awareness reaches the *ranking*, not just the gate. `drain_t1()` grants at most
+  `VECTIS_MAX_T1_PER_CYCLE` (default 64) slots, hottest first. **Wait, don't drop** is explicit
+  and tested: losers stay queued and are all eventually served; each fresh sweep re-anchors a
+  waiter's priority (a cooled cell sinks instead of holding a stale hot slot, but is still
+  served); a re-qualifying queued cell refreshes in place (freshest evidence, one entry — the
+  Session-22 coalescing principle at queue level).
+- **Step 4 — coalescing at global scale** (`test: prove per-cell coalescing holds under
+  multi-cell global load`). The Session-22 per-cell coalescing was only ever proven for one cell;
+  the new pipeline test interleaves a 3-event burst across 5 distinct H3 cells and asserts exactly
+  5 Monte Carlo runs — one per cell, never per event, no cell eating another's slot. **No
+  production change was needed** (the `_jobs`/`_pending` maps were already per-cell); it is now
+  regression-guarded.
+- **Step 5 — back-pressure metrics** (`feat: expose per-cycle back-pressure metrics from the
+  tiering engine`). `run_cycle()` orchestrates consider → drain T1 → pluggable `T1Runner` →
+  select T2 and returns a `TieringCycle` with `TieringMetrics`: hot-set size, T1/T2 executed and
+  queue depths, promotions by reason, cycle time, and `waited_over_one_cycle` — queued cells
+  passed over by more than one budget round, the **queue-aging signal** that separates a brief
+  spike from demand outrunning the budgets. No dashboard; just the numbers, per cycle.
+- **Step 6 — the global storm** (`test: stress the tiering engine with a global storm of 4000
+  simultaneous crossings`). `tests/realtime/test_tiering_storm.py` (`slow`; also `make storm`)
+  drives the **real** screening sweep over a real `EvictingStateStore` of 20,000 land-weighted H3
+  cells (reusing the Session-30 generator) and heats 4,000 at once. Measured numbers below.
+
+**How the T0→T1→T2 gates work together**: every cycle, the sweep screens the whole hot set for
+~free; `consider()` promotes through the three shape-aware gates into the T1 queue; `drain_t1()`
+grants ≤ 64 deep-analysis slots by bias-corrected priority; the T1 runner (in production the
+Session-22 slow path) returns fresh headline risks; `select_t2()` passes those through the reused
+change gate and then the hard board budget (≤ 5 narrations). Both queues **wait rather than
+drop**, and both budgets are enforced unconditionally — an operator can always answer "why did
+this cell get expensive treatment" from the decision's `reason` field.
+
+**How the Session-32 mid-band bias was specifically handled** (the question this session had to
+answer): three distinct mechanisms, all tested — (1) the **[5, 85) transition band** is a
+first-class gate: mid-band + trending up promotes even though the raw score alone never would;
+(2) band cells are **ranked bias-corrected (+13.23 pts, the measured worst under-read)** in the
+priority queue, so they compete for slots as the risk they *may really be*; (3) the unconditional
+cutoff sits at 85, the point Session 32 measured the screen trustworthy (gap ≤ 3.57 < the 5-pt
+materiality threshold) — so the screen is trusted exactly where it earned trust, and distrusted
+exactly where it was measured wrong.
+
+**The measured global-storm numbers (printed by `make storm`, not asserted as hopes)**: 20,000
+active cells, 4,000 crossing the T1 threshold in one cycle; budgets T1=256, T2=8. **T1 executions
+pinned at exactly 256 every cycle** of the storm (hard bound held; peak T1 queue 3,744). Cycle
+time stayed flat: calm median **92 ms**, worst storm cycle **282 ms** (3.1×) — and several calm
+cycles also hit ~220 ms, so the spread is timer/GC noise, not queue pressure (sweep of 20k cells
+dominates; the queue sort is negligible). After the storm subsided the T1 queue drained
+**monotonically** at 256/cycle and emptied at cycle 24; every promoted cell was served
+(wait-don't-drop verified at scale) and the aging signal returned to tracking only the T2 backlog.
+**The honest weakness, printed not hidden**: the T2 board budget is the tightest bottleneck — the
+storm left a **~3,800-cell narration backlog** that drains at 8/cycle (~500 cycles), and cooled
+first-look cells still queue for T2 because a first report is always "material"
+(`risk_moved(None, …) == True`, matching the pipeline's own first-forecast semantics).
+
+**What Worked**:
+- **Deriving thresholds from Session 32's measurements instead of inventing them.** The band
+  bounds, the cutoff, and the +13.23 priority correction all trace to the measured gap table — so
+  every constant in the promotion policy has a cited provenance, and Session 34's calibration can
+  re-derive them the same way.
+- **Factoring `risk_moved` out of the pipeline** made "compose with, don't duplicate, the
+  Session-22 board gating" literal: one function, two call sites, identical semantics.
+- **A dict-per-cell queue re-sorted per drain** (not a heap) — priorities change every cycle as
+  fresh sweeps re-rank waiters, which a heap handles badly and a sort handles trivially. At 4k
+  queued cells the sort is microseconds; `ponytail:` switch to a heap only if queues ever reach
+  millions.
+- **The `T1Runner` seam** kept the stress test honest and fast: the storm exercises the *tiering*
+  engine with a stub runner; the sampler's own numbers are Session 13's job. No fourth cell
+  generator was built — the storm reuses Session 30's `_random_land_point` and the real sweep.
+
+**What Didn't Work / Notes**:
+- **The T2 backlog finding is real and deliberate.** With N=5 (test: 8) narrations/cycle, any
+  large storm builds a narration backlog that outlives the storm by orders of magnitude, inflated
+  by cooled never-reported cells whose "first look is always material". A future session should
+  add a T2 aging/shedding policy (e.g. withdraw never-reported candidates whose current risk falls
+  below a floor) — deliberately **not** done now, because silently discarding queued cells is
+  exactly what this session promised not to do without an explicit, tested policy.
+- **`waited_over_one_cycle` counts both queues**, so after full T1 recovery it keeps flagging the
+  aging T2 backlog. First draft asserted it returned to 0 post-storm — wrong; the metric was
+  correctly reporting genuine T2 aging. The storm test now asserts it stays non-zero and explains
+  why.
+- **A brand-new mid-band cell cannot promote on its first sighting** (no trend history yet — only
+  the score/belief gates can catch it immediately). Documented in `consider()`; acceptable because
+  the next cycle's sweep supplies the trend, and a genuinely hot cell crosses 85 anyway.
+- **Tiering imports `pipeline` (hence, transitively, the engine).** Unlike screening, this layer
+  *may* — it exists to feed the expensive path and reuses its gate; `vectis.realtime.__init__`
+  already eagerly imports the pipeline regardless. The screening AST decoupling test is untouched.
+
+**Next Steps**: **Session 34 — Calibration & Validation.** The credibility session deferred since
+Session 7: fit the wildfire logistic against real **NASA FIRMS** fire/no-fire labels, backtest
+against **ERA5** weather history, and quantify real predictive skill (reliability curves, Brier
+score, skill vs climatology). This also retires the two standing `ponytail:` hand-set constants
+(the ~22 °C climatology baseline in the screen/pipeline bridge and the screening fallback inputs)
+and should **re-derive Session 33's promotion thresholds** (band bounds, cutoff, +13.23
+correction) from the calibrated model's real error curve, the same way this session derived them
+from the S32 gap table. Later in the arc: tiering/zoom over the H3 hierarchy (the still-unused
+parent/child helpers) and the PostGIS cold tier + true rehydration (Session 35).
 
 ---
 
