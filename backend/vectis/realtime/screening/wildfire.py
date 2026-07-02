@@ -83,7 +83,7 @@ class WildfireScreeningIndex(ScreeningIndex):
             "rainfall_anomaly_pct": ones * _BASELINE_INPUTS["rainfall_anomaly_pct"],
             "ignition_sources": ones * _BASELINE_INPUTS["ignition_sources"],
         }
-        risk = self.model.fire_probability(inputs) * 100.0  # 0–1 → shared 0–100 scale
+        risk = self.model.event_probability(inputs) * 100.0  # 0–1 → shared 0–100 scale
 
         return {
             c.cell_id: ScreeningScore(self.hazard, float(v))

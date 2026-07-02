@@ -66,7 +66,7 @@ def _simulate_chunk(args: _ChunkArgs) -> np.ndarray:
         return np.empty(0, dtype=float)
     rng = np.random.default_rng(seedseq)
     inputs = sample_state(state, scenario, rng, size)
-    return hazard.fire_probability(inputs)
+    return hazard.event_probability(inputs)
 
 
 def _reduce(samples: np.ndarray, retain: bool) -> ProbabilityDistribution:

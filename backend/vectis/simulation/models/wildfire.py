@@ -13,8 +13,6 @@ calibrated against real labels (NASA FIRMS) later.
 
 from __future__ import annotations
 
-import json
-from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,19 +20,9 @@ from pathlib import Path
 import numpy as np
 from scipy.special import expit  # numerically-stable, C-level logistic sigmoid
 
-from vectis.core.config import get_settings
-from vectis.core.logging import get_logger
+from vectis.simulation.models.base import HazardModel, load_calibrated_or_default
 
-logger = get_logger(__name__)
-
-
-class HazardModel(ABC):
-    """A vectorized map from sampled inputs to per-sample outcome probabilities."""
-
-    @abstractmethod
-    def fire_probability(self, inputs: Mapping[str, np.ndarray]) -> np.ndarray:
-        """Return P(fire) in ``[0, 1]`` for each sample (array aligned to inputs)."""
-        raise NotImplementedError
+__all__ = ["HazardModel", "WildfireHazardModel", "default_wildfire_model"]
 
 
 # Illustrative log-odds coefficients: hotter, drier, windier, more ignition → higher risk.
@@ -59,7 +47,7 @@ class WildfireHazardModel(HazardModel):
         default_factory=lambda: dict(_DEFAULT_COEFFICIENTS)
     )
 
-    def fire_probability(self, inputs: Mapping[str, np.ndarray]) -> np.ndarray:
+    def event_probability(self, inputs: Mapping[str, np.ndarray]) -> np.ndarray:
         if not inputs:
             return np.empty(0, dtype=float)
         size = len(next(iter(inputs.values())))
@@ -71,6 +59,10 @@ class WildfireHazardModel(HazardModel):
                 z = z + coef * column
         return np.asarray(expit(z), dtype=float)
 
+    def fire_probability(self, inputs: Mapping[str, np.ndarray]) -> np.ndarray:
+        """Legacy wildfire-specific name for :meth:`event_probability` (same math)."""
+        return self.event_probability(inputs)
+
 
 def default_wildfire_model(artifact_path: Path | None = None) -> WildfireHazardModel:
     """The model consumers should default to: **calibrated coefficients when they exist**.
@@ -79,15 +71,7 @@ def default_wildfire_model(artifact_path: Path | None = None) -> WildfireHazardM
     when that artifact is present, every default construction site (the Monte Carlo engine,
     the screening index) picks up the fitted coefficients through this one seam. Absent an
     artifact, the illustrative priors above apply — unchanged behaviour for a fresh clone.
+    Since Session 35 the loading itself is the shared per-hazard
+    :func:`~vectis.simulation.models.base.load_calibrated_or_default`.
     """
-    path = artifact_path or (
-        get_settings().artifacts_dir / "calibration" / "wildfire_coefficients.json"
-    )
-    if not path.exists():
-        return WildfireHazardModel()
-    artifact = json.loads(path.read_text(encoding="utf-8"))
-    logger.info("[INFO] using calibrated wildfire coefficients from %s", path)
-    return WildfireHazardModel(
-        intercept=float(artifact["intercept"]),
-        coefficients={k: float(v) for k, v in artifact["coefficients"].items()},
-    )
+    return load_calibrated_or_default("wildfire", WildfireHazardModel, artifact_path)
