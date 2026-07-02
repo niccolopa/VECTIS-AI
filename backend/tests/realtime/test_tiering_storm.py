@@ -43,12 +43,26 @@ _MAX_CYCLES = 60
 
 
 def _mild(rng: random.Random, cell_id: str) -> WorldCellState:
-    """Calm-world state: cool temperatures screen far below every promotion gate."""
-    return WorldCellState(
+    """Calm-world state: cool temperatures screen far below every promotion gate.
+
+    A slice of the calm world also carries benign multi-hazard state (Session 35) —
+    flood / quake / cyclone observations — so the storm runs over a genuinely
+    multi-hazard active set with every registered index sweeping every cycle.
+    """
+    state = WorldCellState(
         cell_id=cell_id,
         temperature=rng.uniform(10.0, 16.0),
         extra={"wind_speed_kmh": rng.uniform(0.0, 40.0)},
     )
+    roll = rng.random()
+    if roll < 0.05:
+        state.flood_alert_level = 1.0
+        state.precipitation_mm = rng.uniform(0.0, 5.0)
+    elif roll < 0.10:
+        state.earthquake_magnitude = rng.uniform(4.5, 5.0)
+    elif roll < 0.15:
+        state.cyclone_alert_level = 1.0
+    return state
 
 
 def _storm(rng: random.Random, cell_id: str) -> WorldCellState:
