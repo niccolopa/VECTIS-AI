@@ -35,7 +35,7 @@ import numpy as np
 from vectis.realtime.events.base import CellId
 from vectis.realtime.screening.base import ScreeningIndex, ScreeningScore, register
 from vectis.realtime.state.models import WorldCellState
-from vectis.simulation.models.wildfire import WildfireHazardModel
+from vectis.simulation.models.wildfire import WildfireHazardModel, default_wildfire_model
 
 #: Seasonal climatology the absolute temperature reading is measured against, to recover the
 #: anomaly the logistic expects. Mirrors ``pipeline.KALMAN_TO_WORLD``'s -22 °C offset.
@@ -58,7 +58,9 @@ class WildfireScreeningIndex(ScreeningIndex):
     hazard = "wildfire"
 
     def __init__(self, model: WildfireHazardModel | None = None) -> None:
-        self.model = model or WildfireHazardModel()
+        # Calibrated coefficients when the Session-34 artifact exists, priors otherwise —
+        # the same default the engine uses, so screen and engine estimate the same hazard.
+        self.model = model or default_wildfire_model()
 
     def score(self, cells: Sequence[WorldCellState]) -> dict[CellId, ScreeningScore]:
         # Keep only cells with wildfire-relevant state (a temperature reading). The rest —

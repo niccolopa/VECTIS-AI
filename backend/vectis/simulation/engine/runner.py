@@ -27,7 +27,7 @@ import numpy as np
 
 from vectis.simulation.engine.monte_carlo import MonteCarloEngine
 from vectis.simulation.engine.sampler import sample_state, split_iterations
-from vectis.simulation.models.wildfire import HazardModel, WildfireHazardModel
+from vectis.simulation.models.wildfire import HazardModel, default_wildfire_model
 from vectis.simulation.schemas import (
     ProbabilityDistribution,
     Scenario,
@@ -91,7 +91,8 @@ class VectorizedMonteCarloEngine(MonteCarloEngine):
     name = "vectorized_monte_carlo"
 
     def __init__(self, hazard: HazardModel | None = None) -> None:
-        self.hazard = hazard or WildfireHazardModel()
+        # Calibrated coefficients when the Session-34 artifact exists, priors otherwise.
+        self.hazard = hazard or default_wildfire_model()
 
     def run(
         self,
