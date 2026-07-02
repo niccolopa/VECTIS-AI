@@ -89,6 +89,37 @@ def test_burst_for_one_cell_coalesces_to_latest_forecast() -> None:
     assert pipe.forecasts_run == 1  # but only one Monte Carlo cycle (coalesced)
 
 
+def test_coalescing_holds_per_cell_under_multi_cell_global_load() -> None:
+    """Session 33: bursts for MANY cells at once still collapse to one forecast per cell.
+
+    The Session-22 coalescing was proven for a single cell; the tiering engine relies on
+    it holding when the whole active set floods in — a burst for cell A must never eat
+    cell B's slot, and each cell's forecast must be of its freshest state.
+    """
+    spy = _SpyLLM()
+    pipe = _pipeline(spy)
+    # Five distinct locations spread far apart → five distinct H3 cells.
+    locations = [GeoPoint(lat=10.0 * i, lon=8.0 + 10.0 * i) for i in range(5)]
+    cells = {assign_cell_id(loc.lat, loc.lon) for loc in locations}
+    assert len(cells) == 5
+
+    async def scenario() -> int:
+        for value in (0.4, 0.6, 0.9):  # a 3-event burst for EVERY cell, interleaved
+            for loc in locations:
+                await pipe._broker.publish(
+                    DEFAULT_TOPIC,
+                    WeatherEvent(source="test_feed", location=loc,
+                                 payload={"variable": "drought_index", "value": value, "std": 0.05}),
+                )
+        return await pipe.start(max_events=15)
+
+    processed = asyncio.run(scenario())
+
+    assert processed == 15  # every event consumed + acked
+    assert pipe.forecasts_run == 5  # exactly one Monte Carlo per cell, not per event
+    assert set(pipe.results) == cells  # and every cell got its (freshest-state) forecast
+
+
 def test_unchanged_risk_skips_the_expensive_board() -> None:
     """The board only re-runs on a material risk move (damps LLM churn)."""
     spy = _SpyLLM()
