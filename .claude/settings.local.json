@@ -166,7 +166,19 @@
       "Bash(echo \"exit=$?\")",
       "Bash(grep -av \"^$\")",
       "Bash(./.venv/Scripts/python.exe -m ruff check .)",
-      "Bash(./.venv/Scripts/python.exe -m mypy vectis)"
+      "Bash(./.venv/Scripts/python.exe -m mypy vectis)",
+      "PowerShell(& \\(Get-Content graphify-out\\\\.graphify_python\\) \"C:\\\\Users\\\\paola\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-paola-OneDrive-Desktop-VECTIS\\\\b1b38150-59f0-4724-a324-fdd68e3256c6\\\\scratchpad\\\\ast_extract.py\")",
+      "PowerShell(& \\(Get-Content graphify-out\\\\.graphify_python\\) \"C:\\\\Users\\\\paola\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-paola-OneDrive-Desktop-VECTIS\\\\b1b38150-59f0-4724-a324-fdd68e3256c6\\\\scratchpad\\\\build_graph.py\")",
+      "PowerShell(& \\(Get-Content graphify-out\\\\.graphify_python\\) \"C:\\\\Users\\\\paola\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-paola-OneDrive-Desktop-VECTIS\\\\b1b38150-59f0-4724-a324-fdd68e3256c6\\\\scratchpad\\\\label_report.py\")",
+      "PowerShell(graphify export *)",
+      "PowerShell(& \\(Get-Content graphify-out\\\\.graphify_python\\) -m graphify export html 2>&1 | Select-Object -Last)",
+      "PowerShell(& \\(Get-Content graphify-out\\\\.graphify_python\\) \"C:\\\\Users\\\\paola\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-paola-OneDrive-Desktop-VECTIS\\\\b1b38150-59f0-4724-a324-fdd68e3256c6\\\\scratchpad\\\\finalize.py\")",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(git check-ignore *)",
+      "PowerShell(git ls-files .claude; '---'; git status --short)",
+      "PowerShell(& \\(Get-Content graphify-out\\\\.graphify_python\\) -m graphify hook install 2>&1 | Select-Object -Last 5)",
+      "PowerShell(& \\(Get-Content graphify-out\\\\.graphify_python\\) -m graphify update . 2>&1 | Select-Object -Last 6; git status --short; 'tree check done')"
     ],
     "deny": [
       "Bash(rm -rf *)",
