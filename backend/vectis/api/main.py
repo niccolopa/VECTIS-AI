@@ -23,6 +23,7 @@ from vectis.core.logging import configure_logging, get_logger
 from vectis.database.repository import build_repository
 from vectis.realtime.attention import AttentionRegistry
 from vectis.realtime.compute import SharedComputeLoop
+from vectis.realtime.history import HistoryRecorder
 from vectis.realtime.live_stream import (
     GlobalIngestionBroadcaster,
     LiveClimateStream,
@@ -70,6 +71,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         attention=app.state.attention,
         ingestion=app.state.global_ingestion,
         board=SimulationBoardService(),
+        # Session 39: T1/T2 outcomes persist durably under the hot tier — the write
+        # rate is structurally bounded by the tiering budgets.
+        history=HistoryRecorder(),
     )
     await app.state.live_stream.start()
     # Tests set VECTIS_GLOBAL_INGESTION=0: the loop writes real global events into the

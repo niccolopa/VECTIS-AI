@@ -36,6 +36,7 @@ from vectis.core.logging import get_logger
 from vectis.core.schemas import RiskBand
 from vectis.realtime.attention import AttentionRegistry, warming_partition
 from vectis.realtime.events.base import CellId
+from vectis.realtime.history import HistoryRecorder
 from vectis.realtime.live_stream import GlobalIngestionBroadcaster
 from vectis.realtime.pipeline import ForecastResult
 from vectis.realtime.screening.sweep import GlobalScreeningSweep
@@ -263,6 +264,7 @@ class SharedComputeLoop:
         tier: TierManager | None = None,
         runner: CellForecastRunner | None = None,
         board: SimulationBoardService | None = None,
+        history: HistoryRecorder | None = None,
         tick_seconds: float = 30.0,
     ) -> None:
         self._store = store
@@ -271,6 +273,8 @@ class SharedComputeLoop:
         self._tier = tier or TierManager()
         self._runner = runner or CellForecastRunner()
         self._board = board
+        #: Session 39: every T1 forecast / T2 report is snapshotted durably (None = off).
+        self._history = history
         self._tick_seconds = tick_seconds
         self._sweeper = GlobalScreeningSweep()
         self._task: asyncio.Task[None] | None = None
@@ -323,6 +327,15 @@ class SharedComputeLoop:
                 "[INFO] T2 board report for cell %s (risk %.1f, watchlisted=%s)",
                 slot.cell_id, slot.risk, slot.watchlisted,
             )
+            if self._history is not None:
+                state = self._store.get_state(slot.cell_id)
+                if state is not None:
+                    scores = self.latest_scores.get(slot.cell_id, {})
+                    self._history.record_forecast(
+                        state, result,
+                        hazard=max(scores, key=lambda h: scores[h]) if scores else "",
+                        screening=scores, trigger="board_report",
+                    )
 
         self.last_cycle = cycle
         self.tick += 1
@@ -348,6 +361,10 @@ class SharedComputeLoop:
             self._board_inputs[decision.cell_id] = board_input
             self.forecasts_run += 1
             risks[decision.cell_id] = result.risk_score
+            if self._history is not None:
+                self._history.record_forecast(
+                    state, result, hazard=worst, screening=hazards, trigger="t1_forecast"
+                )
         return risks
 
     # ── lifecycle: the background task the app runs ───────────────────────────────
