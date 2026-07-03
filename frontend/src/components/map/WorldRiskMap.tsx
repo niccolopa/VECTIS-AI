@@ -107,9 +107,10 @@ export function WorldRiskMap({
       timer = setTimeout(() => onViewport.current?.(readViewport(m)), VIEWPORT_DEBOUNCE_MS);
     };
     m.on("moveend", report);
-    const emitInitial = () => onViewport.current?.(readViewport(m));
-    if (m.isStyleLoaded()) emitInitial();
-    else m.once("load", emitInitial);
+    // The initial viewport is known synchronously from the constructor options —
+    // emit it immediately. Waiting for the map "load" event would couple the first
+    // tile fetch to the remote basemap finishing (it hangs offline / behind blockers).
+    onViewport.current?.(readViewport(m));
 
     return () => {
       clearTimeout(timer);
@@ -172,8 +173,11 @@ export function WorldRiskMap({
       });
     };
 
+    // Gate on style *parse* ("styledata"), not the full "load" event — "load" also
+    // waits for every remote basemap tile, which can hang offline; the risk layers
+    // must render on the dark background regardless.
     if (m.isStyleLoaded()) apply();
-    else m.once("load", apply);
+    else m.once("styledata", apply);
   }, [cells, activeHazards, selectedCellId]);
 
   // Keep the selection ring in sync.
