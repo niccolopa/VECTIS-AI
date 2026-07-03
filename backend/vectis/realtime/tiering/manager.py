@@ -44,11 +44,12 @@ from __future__ import annotations
 import os
 import time
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from vectis.core.logging import get_logger
+from vectis.core.schemas import RiskBand
 from vectis.realtime.events.base import CellId
 from vectis.realtime.pipeline import DEFAULT_RISK_CHANGE_THRESHOLD, risk_moved
 from vectis.realtime.screening.base import ScreeningScore
@@ -68,7 +69,9 @@ TRANSITION_BAND: tuple[float, float] = (5.0, 85.0)
 #: one-sided low, so the cell is genuinely high-risk — promote on the score alone.
 T1_SCORE_CUTOFF = 85.0
 
-PromotionReason = Literal["score_threshold", "belief_shift", "transition_band_trending_up"]
+PromotionReason = Literal[
+    "score_threshold", "belief_shift", "transition_band_trending_up", "watchlist_refresh"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +81,7 @@ class BoardSlot:
     cell_id: CellId
     risk: float  #: current headline risk (0–100) from the fresh T1 forecast
     change: float  #: magnitude of the move since the last report (== risk if never reported)
+    watchlisted: bool = False  #: pinned by an operator — won its slot on priority (audit)
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +187,7 @@ class TierManager:
         risk_change_threshold: float = DEFAULT_RISK_CHANGE_THRESHOLD,
         max_t1_per_cycle: int | None = None,
         max_t2_per_cycle: int | None = None,
+        watchlist_refresh_cycles: int | None = None,
     ) -> None:
         self._t1_score_cutoff = t1_score_cutoff
         self._band_low, self._band_high = transition_band
@@ -197,6 +202,11 @@ class TierManager:
         self._max_t2 = _env_int(
             max_t2_per_cycle, 5, "VECTIS_MAX_T2_PER_CYCLE", "VECTIS_MAX_BOARD_REPORTS_PER_CYCLE"
         )
+        #: guaranteed T1 refresh cadence for pinned cells (Session 38): every Nth cycle a
+        #: watchlisted cell gets a T1 slot even when no promotion gate fires.
+        self._watchlist_refresh = _env_int(
+            watchlist_refresh_cycles, 3, "VECTIS_WATCHLIST_REFRESH_CYCLES"
+        )
 
         #: previous cycle's screen score per cell — the memory the trend gate reads.
         self._last_score: dict[CellId, float] = {}
@@ -210,6 +220,20 @@ class TierManager:
         self._t1_waits: dict[CellId, int] = {}
         self._t2_waits: dict[CellId, int] = {}
         self._cycle = 0
+        #: operator-pinned cells (Session 38) — synced from the AttentionRegistry each cycle.
+        self._watchlist: frozenset[CellId] = frozenset()
+        #: cycle number of each pinned cell's last granted T1 slot — the refresh schedule.
+        self._watchlist_last_t1: dict[CellId, int] = {}
+
+    def set_watchlist(self, cells: Iterable[CellId]) -> None:
+        """Sync the operator watchlist. Pinned cells get a guaranteed T1 refresh every
+        ``watchlist_refresh_cycles`` and jump the T1/T2 queues — **within** the same hard
+        budgets: a pin wins priority for a slot, it never mints an extra one."""
+        pinned = frozenset(cells)
+        if unpinned := self._watchlist - pinned:
+            for cell_id in unpinned:  # forget schedules for cells no longer pinned
+                self._watchlist_last_t1.pop(cell_id, None)
+        self._watchlist = pinned
 
     # ── T0 → T1 ───────────────────────────────────────────────────────────────────
     def evaluate(
@@ -277,6 +301,23 @@ class TierManager:
                     self._t1_queue[cell_id], score=score, priority=corrected
                 )
             self._last_score[cell_id] = score
+
+        # Watchlist refresh (Session 38): a pinned cell whose scheduled refresh is due
+        # enters the T1 queue even when no gate fired — independent of the screening
+        # thresholds, so an operator's pin is never starved by a quiet score. It still
+        # competes inside the same hard T1 budget (see drain_t1's priority order).
+        for cell_id in self._watchlist:
+            pin_score = scores.get(cell_id)
+            if pin_score is None:
+                continue  # no screenable state → nothing to forecast; never fabricate
+            due = self._cycle - self._watchlist_last_t1.get(cell_id, -self._watchlist_refresh)
+            if due >= self._watchlist_refresh and cell_id not in self._t1_queue:
+                decision = PromotionDecision(
+                    cell_id, "watchlist_refresh", pin_score, shifts.get(cell_id, 0.0), pin_score
+                )
+                self._t1_queue[cell_id] = decision
+                self._t1_waits[cell_id] = 0
+                promoted.append(decision)
         return promoted
 
     @property
@@ -288,15 +329,24 @@ class TierManager:
         """Grant this cycle's deep-analysis slots: the top ``max_t1_per_cycle`` by priority.
 
         Priority is the bias-corrected promotion signal (see :meth:`evaluate`), so a
-        transition-band cell competes as the risk it *may really be*. Cells that don't
-        make the cut are **not dropped** — they remain queued and are reconsidered next
-        cycle, when their screening score (and hence rank) may have moved.
+        transition-band cell competes as the risk it *may really be*. Watchlisted cells
+        rank ahead of everything (Session 38): a pin wins priority for a slot inside the
+        same hard budget, it never creates an extra one — with more pins than budget,
+        pins compete among themselves by the same signal. Cells that don't make the cut
+        are **not dropped** — they remain queued and are reconsidered next cycle, when
+        their screening score (and hence rank) may have moved.
         """
-        ranked = sorted(self._t1_queue.values(), key=lambda d: d.priority, reverse=True)
+        ranked = sorted(
+            self._t1_queue.values(),
+            key=lambda d: (d.cell_id in self._watchlist, d.priority),
+            reverse=True,
+        )
         batch = ranked[: self._max_t1]
         for decision in batch:
             del self._t1_queue[decision.cell_id]
             self._t1_waits.pop(decision.cell_id, None)
+            if decision.cell_id in self._watchlist:
+                self._watchlist_last_t1[decision.cell_id] = self._cycle  # refresh served
         for cell_id in self._t1_queue:  # everyone left was passed over one more round
             self._t1_waits[cell_id] = self._t1_waits.get(cell_id, 0) + 1
         return batch
@@ -324,18 +374,32 @@ class TierManager:
         A cell can pass the change gate and still lose the budget gate when hotter cells
         compete for the same slots. Granted cells are recorded as reported, which is what
         re-arms their change gate for the next material move.
+
+        Watchlisted cells (Session 38) get two boosts, both inside the same hard budget:
+        candidacy on **any threshold crossing** — a risk-band boundary crossed since the
+        last report counts even when the numeric move alone is immaterial — and first
+        rank in the queue, so a pin wins a slot over a larger unpinned change rather
+        than minting an extra narration.
         """
         for cell_id, risk in risks.items():
             prior = self._last_reported_risk.get(cell_id)
-            if risk_moved(prior, risk, self._risk_change_threshold):
+            watchlisted = cell_id in self._watchlist
+            crossed_band = (
+                watchlisted
+                and prior is not None
+                and RiskBand.from_score(prior) is not RiskBand.from_score(risk)
+            )
+            if risk_moved(prior, risk, self._risk_change_threshold) or crossed_band:
                 change = abs(risk - prior) if prior is not None else risk
-                self._t2_queue[cell_id] = BoardSlot(cell_id, risk, change)  # freshest wins
+                self._t2_queue[cell_id] = BoardSlot(cell_id, risk, change, watchlisted)
                 self._t2_waits.setdefault(cell_id, 0)
             else:
                 self._t2_queue.pop(cell_id, None)  # pending change evaporated
                 self._t2_waits.pop(cell_id, None)
 
-        ranked = sorted(self._t2_queue.values(), key=lambda s: s.change, reverse=True)
+        ranked = sorted(
+            self._t2_queue.values(), key=lambda s: (s.watchlisted, s.change), reverse=True
+        )
         granted = ranked[: self._max_t2]
         for slot in granted:
             del self._t2_queue[slot.cell_id]
