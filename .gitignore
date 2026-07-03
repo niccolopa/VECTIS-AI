@@ -47,3 +47,5 @@ Thumbs.db
 logs/
 .claude/
 .env
+# graphify knowledge-graph output (generated, reproducible)
+graphify-out/
