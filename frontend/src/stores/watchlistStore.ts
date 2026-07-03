@@ -3,13 +3,14 @@
 // the map even before any data loads) and the last-known per-hazard headline scores,
 // refreshed whenever fresh tile/brief data passes through the terminal.
 //
-// NOTE (Session 38 — Demand-Driven Compute): pinned cells do NOT yet receive compute
-// priority in the backend TierManager. Pinning is purely a UI bookmark today; wiring
-// watchlist entries into the promotion queues is explicitly Session 38's job. Nothing
-// here fakes that behavior.
+// Session 38: pins are synced (best-effort) to the backend attention registry, where
+// the TierManager grants them a scheduled T1 refresh and T2 queue priority, and the
+// eviction policy keeps them warm. Sync failure degrades to bookmark-only behavior.
+// Priority buys freshness, not accuracy — the models stay uncalibrated either way.
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { syncWatchlist } from "@/services/v3";
 import { safeStorage } from "@/stores/selectionStore";
 
 export interface WatchlistEntry {
@@ -34,14 +35,18 @@ export const useWatchlistStore = create<WatchlistState>()(
   persist(
     (set, get) => ({
       entries: [],
-      pin: (entry) =>
+      pin: (entry) => {
         set((s) => ({
           entries: s.entries.some((e) => e.cellId === entry.cellId)
             ? s.entries
             : [...s.entries, { ...entry, pinnedAt: new Date().toISOString() }],
-        })),
-      unpin: (cellId) =>
-        set((s) => ({ entries: s.entries.filter((e) => e.cellId !== cellId) })),
+        }));
+        void syncWatchlist(get().entries.map((e) => e.cellId));
+      },
+      unpin: (cellId) => {
+        set((s) => ({ entries: s.entries.filter((e) => e.cellId !== cellId) }));
+        void syncWatchlist(get().entries.map((e) => e.cellId));
+      },
       isPinned: (cellId) => get().entries.some((e) => e.cellId === cellId),
       updateScores: (scores) =>
         set((s) => {
@@ -53,6 +58,16 @@ export const useWatchlistStore = create<WatchlistState>()(
           };
         }),
     }),
-    { name: "vectis-watchlist", storage: safeStorage },
+    {
+      name: "vectis-watchlist",
+      storage: safeStorage,
+      // Re-register persisted pins with the backend on load: attention is in-memory
+      // server-side (expires with the viewer TTL), so a fresh page must re-announce.
+      onRehydrateStorage: () => (state) => {
+        if (state && state.entries.length > 0) {
+          void syncWatchlist(state.entries.map((e) => e.cellId));
+        }
+      },
+    },
   ),
 );

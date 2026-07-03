@@ -122,6 +122,12 @@ class AttentionRegistry:
             self._purge_expired_locked()
             return set().union(*self._watchlists.values()) if self._watchlists else set()
 
+    def watchlist_of(self, viewer_id: str) -> frozenset[CellId]:
+        """One viewer's pins — the fan-out layer scopes its frames with this."""
+        with self._lock:
+            self._purge_expired_locked()
+            return self._watchlists.get(viewer_id, frozenset())
+
     def is_attended(self, lat: float, lon: float) -> bool:
         """True if any live viewport contains the point.
 

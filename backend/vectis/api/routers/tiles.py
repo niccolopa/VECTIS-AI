@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import h3
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -125,12 +125,27 @@ def build_tile(
     estimate per registered hazard) — no sampling, no promotion, no board.
     """
     sweep = GlobalScreeningSweep().sweep(states)
+    return regrid(
+        {cell: {h: s.value for h, s in scores.items()} for cell, scores in sweep.items()},
+        resolution,
+        hazard,
+    )
 
+
+def regrid(
+    scores: Mapping[str, Mapping[str, float]], resolution: int, hazard: str | None = None
+) -> list[TileCell]:
+    """Re-grid per-native-cell hazard scores to ``resolution`` (Session 38 seam).
+
+    Split out of :func:`build_tile` so the shared compute loop's already-computed sweep
+    can be re-gridded per subscriber **without re-screening per connection** — the
+    roll-up rules (max per hazard, display subdivision) are unchanged.
+    """
     # {target cell → {hazard → score}} plus how many native cells fed each target.
     aggregated: dict[str, dict[str, float]] = {}
     counts: dict[str, int] = {}
-    for cell_id, scores in sweep.items():
-        wanted = {h: s.value for h, s in scores.items() if hazard is None or h == hazard}
+    for cell_id, cell_scores in scores.items():
+        wanted = {h: v for h, v in cell_scores.items() if hazard is None or h == hazard}
         if not wanted:
             continue
         if resolution < DEFAULT_RESOLUTION:

@@ -120,6 +120,7 @@ def create_app() -> FastAPI:
         regions,
         stream,
         tiles,
+        watchlist,
     )
 
     app.include_router(health.router)
@@ -132,6 +133,7 @@ def create_app() -> FastAPI:
     app.include_router(live.router)
     app.include_router(tiles.router)
     app.include_router(cells.router)
+    app.include_router(watchlist.router)
     return app
 
 
