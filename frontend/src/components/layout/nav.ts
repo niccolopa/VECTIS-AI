@@ -8,6 +8,7 @@ import {
   IconReport,
   IconRisk,
   IconSimulation,
+  IconTerminal,
 } from "@/components/layout/icons";
 
 export interface NavItem {
@@ -19,6 +20,7 @@ export interface NavItem {
 // Sidebar navigation — the operational sections of the VECTIS console.
 export const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Overview", icon: IconOverview },
+  { to: "/terminal", label: "Global Terminal", icon: IconTerminal },
   { to: "/live", label: "Live Intelligence", icon: IconLive },
   { to: "/dashboard", label: "Decision Intelligence", icon: IconActivity },
   { to: "/risk", label: "Risk Intelligence", icon: IconRisk },

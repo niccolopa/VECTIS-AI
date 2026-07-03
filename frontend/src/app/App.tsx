@@ -3,6 +3,7 @@ import { AppLayout } from "@/app/AppLayout";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { LiveIntelligencePage } from "@/pages/LiveIntelligencePage";
+import { TerminalPage } from "@/pages/TerminalPage";
 import { RiskIntelligencePage } from "@/pages/RiskIntelligencePage";
 import { MapsPage } from "@/pages/MapsPage";
 import { ReportsPage } from "@/pages/ReportsPage";
@@ -18,6 +19,7 @@ export function App() {
         <Route path="/" element={<OverviewPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/live" element={<LiveIntelligencePage />} />
+        <Route path="/terminal" element={<TerminalPage />} />
         <Route path="/risk" element={<RiskIntelligencePage />} />
         <Route path="/maps" element={<MapsPage />} />
         <Route path="/reports" element={<ReportsPage />} />

@@ -70,6 +70,13 @@ export const IconActivity = (p: IconProps) => (
   </svg>
 );
 
+export const IconTerminal = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="3" y="4" width="18" height="16" rx="1.5" />
+    <path d="M7 9l3 3-3 3M12 15h5" />
+  </svg>
+);
+
 export const IconLive = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="12" cy="12" r="2.5" />
