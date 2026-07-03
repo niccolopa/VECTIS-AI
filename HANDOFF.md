@@ -4,7 +4,25 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-07-02** · End of **Sessions 35 & 36** (Multi-Hazard Models + The Tile
+Last updated: **2026-07-03** · End of **Session 37** (The Terminal Frontend — **COMPLETE**:
+the multi-pane global terminal at **`/terminal`** (additive; `/live` and `/dashboard`
+untouched) — `WorldRiskMap` painting the Session-36 tile endpoint's per-hazard choropleth at
+the map's own debounced viewport bbox; the Session-24 SSE transport generalized to a
+**viewport-scoped** terminal stream (`GET /api/v1/stream/v3/terminal`, one global ingestion
+loop, per-connection viewport resolution — the shared broadcast pipeline is Session 38's
+job) consumed by a new `useTerminalStream` beside the untouched `useV3Stream` (same frame
+contract, same rAF coalescing); `GlobalEventTicker` as the worldwide cap-based tape;
+`RegionBriefPanel` drill-down whose **T0-vs-T1/T2 distinction is behavioral, not a label**
+(T0 = flat screening bars + warning badge + "screening estimate only" callout; T1/T2 =
+per-scenario p05/p50/p95 whiskers + Bayesian posterior + T2 analyst brief, with screening
+demoted to "for comparison"); `WatchlistPanel` with localStorage-persisted pins,
+click-to-recenter, and **compute priority explicitly deferred to Session 38** in code
+comments; Vitest coverage for viewport scoping, ticker cap, tier honesty, and watchlist
+persistence. Backend pytest green, ruff + mypy clean (164 files), frontend typecheck +
+lint + **21 tests** pass. The session was twice interrupted by usage limits; recovery was
+forensic — the interrupted tracker claimed Steps 2–3 in progress and 4–7 unstarted, but
+`git log` showed **all seven steps already committed**. See the Session 37 section
+directly below.) · End of **Sessions 35 & 36** (Multi-Hazard Models + The Tile
 Server — **COMPLETE**: three new hazard models behind the shared `HazardModel` seam —
 `FloodHazardModel` (Open-Meteo precipitation + GDACS flood alerts), `EarthquakeImpactModel`
 (Omori-shaped aftershock impact conditioned on real USGS mainshock magnitudes — explicitly
@@ -171,6 +189,109 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 37 — The Terminal Frontend
+
+**Goal**: Put a face on the V4 backend arc (Sessions 30–36): one dense, multi-pane global
+terminal that renders the Session-36 tile endpoint as a world heat map, generalizes the
+Session-24 SSE transport from one hardcoded demo region to the connecting client's
+viewport, adds a worldwide event tape, a per-cell drill-down brief that is *honest about
+tier* (a T0 screening estimate must never dress up as a T1/T2 Monte Carlo forecast — the
+Session-32 gap measurement is why), and watchlist pinning **without** compute priority
+(that wiring is Session 38's, by design) — assembled at a new route additive to `/live`
+and `/dashboard`.
+
+**Current Progress**: Session 37 — The Terminal Frontend — **COMPLETE**. Seven step
+commits (all made by the twice-interrupted pass and verified forensically by the recovery
+pass, which found **zero code left to write**) + this handoff. Backend pytest green, ruff +
+mypy clean (164 files); frontend `tsc` + `eslint --max-warnings 0` clean, **21 Vitest
+tests pass** (was 14 pre-session).
+
+- **Step 1 — the world risk map** (`feat: add viewport-scoped WorldRiskMap with per-hazard
+  choropleth layers`, `9759c7b`; plus `a55a203` skipping non-point GDACS geometries and
+  `4fbec41` emitting the initial viewport synchronously / gating layers on `styledata`).
+  `components/map/WorldRiskMap.tsx` + `features/terminal/useTiles.ts`: MapLibre paints
+  `GET /api/v1/tiles` for the map's own debounced bbox+zoom, one fill layer per screened
+  hazard, `HazardToggle` overlay, cell click → selection.
+- **Step 2 — the viewport-scoped stream** (`feat: stream viewport-scoped terminal frames
+  from one global ingestion loop`, `15c5109`). `GET /api/v1/stream/v3/terminal`
+  (`api/routers/live.py`): each connection declares its viewport; frames carry the global
+  event tape + the viewport's screened cells, resolved per connection at the API layer
+  from the single `GlobalIngestionBroadcaster` loop. `useV3Stream.ts` was **extended, not
+  replaced**: `useTerminalStream(viewport)` reuses the same rAF-coalescing accumulator
+  machinery beside the untouched `useV3Stream`. Per-connection streams are explicitly
+  Session 38's debt (comment in `live_stream.py`).
+- **Step 3 — the worldwide tape** (`feat: add the global event ticker fed by the worldwide
+  tape`, `c1e1201`). `features/terminal/GlobalEventTicker.tsx`: the Session-24 `EventFeed`
+  cap-based rolling pattern, fed by the stream's **global** (not viewport-scoped) events,
+  newest first, source-colored.
+- **Step 4 — the drill-down brief** (`feat: add per-cell drill-down brief with an honest
+  T0/T1/T2 tier switch`, `1866d04`). `GET /api/v1/cells/{id}/brief` + `RegionBriefPanel.tsx`.
+  The tier distinction is **behavioral, not a label**: T0 renders flat per-hazard
+  `ScreeningBars` (point estimates, no distribution treatment), a warning-tone tier badge,
+  and a leading "Screening estimate only" callout naming the known low bias; T1/T2 render
+  per-scenario p05/p50/p95 whisker distributions, the Bayesian posterior, and (T2) the
+  analyst board brief — with screening scores demoted to a "for comparison" card.
+- **Step 5 — watchlist pinning** (`feat: add persistent watchlist pinning — compute
+  priority deferred to Session 38`, `b1f5222`). `stores/watchlistStore.ts`
+  (localStorage-persisted) + `WatchlistPanel.tsx`: pin/unpin, last-known headline score
+  per hazard refreshed as data flows, click-to-recenter. The store carries an explicit
+  `NOTE (Session 38 — Demand-Driven Compute)` that pins get **no** compute priority yet;
+  the panel says so in UI copy too. Nothing is silently faked.
+- **Step 6 — the terminal** (`feat: assemble the multi-pane global terminal at /terminal`,
+  `40f13df`). `pages/TerminalPage.tsx` at **`/terminal`** (additive — `/live`,
+  `/dashboard`, and the Overview landing route untouched): map primary (fills remaining
+  space), top identity strip with hazard toggles + stream status (and the standing
+  "illustrative coefficients, uncalibrated" caveat in the header), right side panel
+  (watchlist + brief drawer when a cell is selected), bottom ticker edge strip. Pan
+  renders immediately from HTTP tiles while the viewport-scoped stream reconnects; live
+  frames take over once delivered.
+- **Step 7 — the proof** (`test: cover viewport scoping, ticker cap, tier honesty, and
+  watchlist persistence`, `b310128`). `features/terminal/__tests__/terminal.test.tsx`
+  (MSW-mocked, matching existing conventions): tiles requested for exactly the visible
+  bbox+zoom; ticker caps and keeps newest; a T0 cell presents as an estimate (and never
+  shows distributions) while a T2 cell shows distributions + posterior + report; pins
+  persist to storage, re-center on click, and unpin cleanly.
+
+**What Worked**:
+- **Forensic-first recovery, third time in a row.** The interrupted pass's tracker said
+  Steps 2–3 were mid-flight and 4–7 unstarted; `git log` said all seven steps were
+  committed atomically and `git status` said the tree was clean. The recovery pass
+  verified each commit's *content* (not just its message), re-ran both suites fresh, and
+  wrote this handoff — no code was redone. Atomic per-step commits are what made the
+  double interruption nearly free.
+- **The tier-honesty rule as a rendering switch, not a caption.** Making T0-vs-T1/T2
+  select *which components exist* (bars vs whiskers/posterior/brief) means a screening
+  estimate physically cannot be styled like a forecast — the test asserts the absence.
+- **HTTP tiles + SSE as freshest-wins** gave instant pan feedback without racing the
+  stream reconnect.
+
+**What Didn't Work**:
+- **Two usage-limit interruptions** hit the building pass (~3 h in), which also left
+  force-stopped background processes (test watcher, pytest, API server, Vite). The
+  recovery pass found all ports (8000/5173/5174/4173) clean — nothing survived — and both
+  suites green on fresh runs.
+- **The interrupted session's task tracker was badly stale — in our favor.** It
+  under-reported by five full steps (claimed 2–3 in progress, 4–7 unstarted; reality: all
+  committed). The lesson stands from Sessions 34/35: reconstruct from the repo, never
+  from a tracker or summary. The one suspicious artifact (the drill-down JSX fragment
+  "ahead of" the tracker) was simply Step 4's committed `RegionBriefPanel.tsx`.
+- **The knowledge graph was not the liability the recovery brief feared.** It had been
+  rebuilt after the final Session 37 commits, so it already knew the terminal components;
+  no exploration was wasted on stale graph results. The repo's `.git/hooks/post-commit`
+  graphify hook was missing, though — installed at the end of this pass so the graph
+  self-updates from now on.
+
+**Next Steps**: **Session 38 — Demand-Driven Compute & Watchlists**: viewport-aware
+warming (the cells operators are actually looking at get compute attention),
+watchlist priority wired into `TierManager` (the deferral noted in
+`stores/watchlistStore.ts`), and the shared broadcast pipeline replacing per-connection
+SSE streams (the deferral noted in `live_stream.py`). **Standing prerequisite,
+unchanged**: every hazard still runs on illustrative, uncalibrated coefficients — the
+terminal header says so — and the Session-34 calibration pipeline is still waiting on a
+free FIRMS MAP_KEY before any risk number it shows is validated.
 
 ---
 
