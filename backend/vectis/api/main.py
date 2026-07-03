@@ -20,13 +20,14 @@ from vectis.core.config import get_settings
 from vectis.core.exceptions import VectisError
 from vectis.core.logging import configure_logging, get_logger
 from vectis.database.repository import build_repository
+from vectis.realtime.attention import AttentionRegistry
 from vectis.realtime.live_stream import (
     GlobalIngestionBroadcaster,
     LiveClimateStream,
     LiveStreamBroadcaster,
 )
 from vectis.realtime.state.models import WorldCellState
-from vectis.realtime.state.store import MemoryStateStore
+from vectis.realtime.state.store import EvictingStateStore, MemoryStateStore
 from vectis.services.analysis_service import AnalysisService
 from vectis.services.dashboard_service import DashboardService
 from vectis.streaming.broadcaster import ConnectionManager
@@ -47,9 +48,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.broadcaster = ConnectionManager()
     # ONE global V3 pipeline, fanned out to every SSE viewer (not one pipeline per connection).
     app.state.live_stream = LiveStreamBroadcaster(LiveClimateStream())
+    # Who is looking where (Session 38): SSE handlers register viewports/watchlists;
+    # eviction and the warming cadence consult it.
+    app.state.attention = AttentionRegistry()
     # The active cell set the tile endpoint screens — populated by the global ingestion
     # broadcaster below, which polls the Session-31 planetary feeds into it each tick.
-    app.state.tile_store = MemoryStateStore[WorldCellState]()
+    # TTL+LRU bounded (Session 30), with attention-protected cells exempt from idle
+    # eviction while someone is actually watching them (Session 38).
+    app.state.tile_store = EvictingStateStore(
+        MemoryStateStore[WorldCellState](), keep=app.state.attention.protects
+    )
     app.state.tile_cache = TileCache()
     app.state.global_ingestion = GlobalIngestionBroadcaster(app.state.tile_store)
     await app.state.live_stream.start()

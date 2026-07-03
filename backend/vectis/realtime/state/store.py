@@ -250,13 +250,23 @@ class EvictingStateStore(StateStore[StateT], Generic[StateT]):
         maxsize: int = 100_000,
         idle_seconds: float = 3600.0,
         time_fn: Callable[[], float] = time.monotonic,
+        keep: Callable[[CellId], bool] | None = None,
     ) -> None:
+        """``keep`` (Session 38): the attention predicate. A cell for which it returns
+        True is exempt from **idle-TTL** eviction — it is re-warmed instead, so a cell
+        someone is looking at (or has pinned) stays hot while watched and starts aging
+        normally the moment attention moves away. The **LRU maxsize cap is still hard**:
+        memory safety outranks attention, so under overflow the least-recently-touched
+        unprotected cell goes first, and if literally everything is protected the LRU
+        cell is evicted anyway. ``keep=None`` is exactly the pre-Session-38 behavior.
+        """
         if maxsize < 1:
             raise ValueError("maxsize must be >= 1")
         self._inner = inner
         self._maxsize = maxsize
         self._idle = idle_seconds
         self._now = time_fn
+        self._keep = keep
         self._touched: OrderedDict[CellId, float] = OrderedDict()  # cell → last-touch time
         self._lock = threading.Lock()
         self.evictions = 0
@@ -315,17 +325,35 @@ class EvictingStateStore(StateStore[StateT], Generic[StateT]):
         self._touched[cell_id] = now
         self._touched.move_to_end(cell_id)
         while len(self._touched) > self._maxsize:
-            old_cell, _ = self._touched.popitem(last=False)  # least-recently-touched
-            self._inner.delete(old_cell)
-            self.evictions += 1
+            self._evict_lru()
+
+    def _evict_lru(self) -> None:
+        """Evict the least-recently-touched **unprotected** cell; if every cell is
+        protected, the hard memory bound wins and the LRU cell goes regardless.
+        ponytail: O(n) scan when many cells are protected — fine while attention is a
+        handful of viewports; index protected cells if that ever dominates."""
+        victim = next(iter(self._touched))
+        if self._keep is not None:
+            for cell_id in self._touched:
+                if not self._keep(cell_id):
+                    victim = cell_id
+                    break
+        self._touched.pop(victim)
+        self._inner.delete(victim)
+        self.evictions += 1
 
     def _purge_expired(self, now: float) -> None:
-        """Evict every cell idle longer than the TTL. Front of the dict is oldest-touched,
-        so we can stop at the first still-fresh cell."""
+        """Evict every cell idle longer than the TTL — unless attention protects it,
+        in which case it is re-warmed (touched ``now``) instead: watched cells never
+        TTL out mid-watch, and begin aging fresh the moment attention moves away."""
         while self._touched:
             cell_id, ts = next(iter(self._touched.items()))
             if now - ts <= self._idle:
                 break
+            if self._keep is not None and self._keep(cell_id):
+                self._touched[cell_id] = now  # re-warm: attention counts as a touch
+                self._touched.move_to_end(cell_id)
+                continue
             self._touched.pop(cell_id)
             self._inner.delete(cell_id)
             self.evictions += 1
