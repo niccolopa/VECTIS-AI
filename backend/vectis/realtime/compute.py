@@ -284,6 +284,10 @@ class SharedComputeLoop:
         self.tick = 0
         self.forecasts_run = 0
         self.reports_generated = 0
+        #: honest load accounting: cells screened this tick / in total — what the
+        #: attention-bounded load proof compares against viewer count × grid size.
+        self.cells_screened_last = 0
+        self.cells_screened_total = 0
         self._board_inputs: dict[CellId, BoardInput] = {}
 
     # ── one deterministic tick ────────────────────────────────────────────────────
@@ -293,6 +297,8 @@ class SharedComputeLoop:
 
         states = self._store.active_states()
         to_screen = warming_partition(self.tick, states, self._attention)
+        self.cells_screened_last = len(to_screen)
+        self.cells_screened_total += len(to_screen)
         sweep = self._sweeper.sweep(to_screen)
 
         # Merge fresh scores over the last known ones; forget evicted cells.
