@@ -118,3 +118,26 @@ def test_manager_merges_and_survives_a_dead_feed() -> None:
     batch = list(mgr.run(interval=0, max_cycles=1))
 
     assert len(batch) == 5  # temp/humidity/wind/drought/precip; dead feed contributes nothing, no crash
+
+
+def test_gdacs_skips_non_point_geometries_instead_of_crashing() -> None:
+    """Real GDACS responses mix Point alerts with Polygon/MultiPoint geometries
+    (nested coordinate lists) — those must be skipped, never crash the poll cycle
+    (a normalize error would kill every other feed in the same cycle)."""
+    from vectis.realtime.connectors.gdacs import GdacsConnector
+
+    conn = GdacsConnector(base_url="http://x")
+    events = conn.normalize(
+        {
+            "features": [
+                {"geometry": {"coordinates": [120.9, 14.6]},
+                 "properties": {"eventtype": "TC", "alertlevel": "Red"}},
+                {"geometry": {"coordinates": [[[10.0, 20.0], [11.0, 21.0]]]},  # Polygon
+                 "properties": {"eventtype": "FL", "alertlevel": "Orange"}},
+                {"geometry": {"coordinates": [[30.0, 40.0], [31.0, 41.0]]},  # MultiPoint
+                 "properties": {"eventtype": "DR", "alertlevel": "Green"}},
+            ]
+        }
+    )
+    assert len(events) == 1  # only the honest point alert survives
+    assert events[0].location.lat == 14.6

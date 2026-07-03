@@ -90,8 +90,10 @@ class GdacsConnector(BaseAPIConnector):
         events: list[GlobalEvent] = []
         for feature in raw.get("features", []):
             coords = (feature.get("geometry") or {}).get("coordinates") or []
-            if len(coords) < 2:
-                continue  # unplaceable alert — skip, don't crash
+            # Real GDACS responses mix geometry types: alerts can carry Polygon /
+            # MultiPoint coordinates (nested lists), not just [lon, lat] points.
+            if len(coords) < 2 or not all(isinstance(c, int | float) for c in coords[:2]):
+                continue  # unplaceable or non-point alert — skip, don't crash
             props = feature.get("properties") or {}
             hazard = _HAZARD_TYPES.get(str(props.get("eventtype", "")).upper(), "hazard")
             alert = _ALERT_LEVELS.get(str(props.get("alertlevel", "")).strip().lower(), 1.0)
