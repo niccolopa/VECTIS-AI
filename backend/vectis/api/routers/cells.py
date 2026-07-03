@@ -135,8 +135,14 @@ def cell_brief(cell_id: str, request: Request) -> CellBrief:
     # The observed-state panel only makes sense for exactly one underlying cell.
     state = members[0] if len(members) == 1 else None
 
+    # T1/T2 forecasts now come from the shared compute loop (Session 38) first — the
+    # tiering engine's demand-driven results — with the legacy single-cell live
+    # pipeline as fallback so /live's headline cell keeps its brief.
     live: LiveStreamBroadcaster = request.app.state.live_stream
-    result: ForecastResult | None = live.pipeline.results.get(cell_id)
+    compute = getattr(request.app.state, "compute", None)
+    result: ForecastResult | None = (
+        compute.results.get(cell_id) if compute is not None else None
+    ) or live.pipeline.results.get(cell_id)
     if not members and result is None:
         raise HTTPException(status_code=404, detail=f"no observed state for cell {cell_id!r}")
 

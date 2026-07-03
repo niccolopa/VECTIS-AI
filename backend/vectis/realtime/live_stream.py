@@ -410,12 +410,20 @@ class GlobalIngestionBroadcaster:
                 # ingestion forever — log it, skip the tick, poll again.
                 logger.exception("[ERROR] global ingestion cycle failed; retrying next tick")
                 views = []
-            for queue in list(self._subscribers):
-                if queue.full():  # slow consumer — drop its oldest batch, never stall
-                    with suppress(asyncio.QueueEmpty):
-                        queue.get_nowait()
-                queue.put_nowait(views)
+            self.publish(views)
             await asyncio.sleep(self._tick_seconds)
+
+    def publish(self, views: list[dict[str, Any]]) -> None:
+        """Fan one tick's event views out to every subscriber (never stalling on one).
+
+        Exposed (Session 38) so the shared compute loop can own the tick — polling and
+        computing in one cycle — while this broadcaster keeps serving its subscribers.
+        """
+        for queue in list(self._subscribers):
+            if queue.full():  # slow consumer — drop its oldest batch, never stall
+                with suppress(asyncio.QueueEmpty):
+                    queue.get_nowait()
+            queue.put_nowait(views)
 
     async def subscribe(self) -> AsyncIterator[list[dict[str, Any]]]:
         """Yield event batches to one viewer, starting with the recent backlog.

@@ -15,12 +15,14 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from vectis.agents.board.service import SimulationBoardService
 from vectis.api.routers.tiles import TileCache
 from vectis.core.config import get_settings
 from vectis.core.exceptions import VectisError
 from vectis.core.logging import configure_logging, get_logger
 from vectis.database.repository import build_repository
 from vectis.realtime.attention import AttentionRegistry
+from vectis.realtime.compute import SharedComputeLoop
 from vectis.realtime.live_stream import (
     GlobalIngestionBroadcaster,
     LiveClimateStream,
@@ -60,15 +62,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.tile_cache = TileCache()
     app.state.global_ingestion = GlobalIngestionBroadcaster(app.state.tile_store)
+    # ONE shared tiered compute loop (Session 38): it owns the tick — polling the feeds
+    # via the broadcaster, screening on the warming cadence, and running the budgeted
+    # T1/T2 tiers — so SSE connections are fan-out queues, never compute loops.
+    app.state.compute = SharedComputeLoop(
+        store=app.state.tile_store,
+        attention=app.state.attention,
+        ingestion=app.state.global_ingestion,
+        board=SimulationBoardService(),
+    )
     await app.state.live_stream.start()
     # Tests set VECTIS_GLOBAL_INGESTION=0: the loop writes real global events into the
-    # same tile_store their assertions seed, so it must not race them. The broadcaster
-    # object still exists — tests drive ticks deterministically via poll_once().
+    # same tile_store their assertions seed, so it must not race them. The loop object
+    # still exists — tests drive ticks deterministically via run_cycle().
     if os.getenv("VECTIS_GLOBAL_INGESTION", "1") != "0":
-        await app.state.global_ingestion.start()
+        await app.state.compute.start()
     log.info("api.startup", env=settings.env, llm_provider=settings.llm_provider)
     yield
-    await app.state.global_ingestion.stop()
+    await app.state.compute.stop()
     await app.state.live_stream.stop()
     log.info("api.shutdown")
 
