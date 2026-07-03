@@ -8,8 +8,9 @@ export const DEFAULT_REGION = "california";
 
 // localStorage can be missing or throw (SSR, tests, Safari private mode). Fall
 // back to an in-memory store so persistence degrades silently, never crashes.
+// Shared with every persisted store (selection, watchlist).
 const memory = new Map<string, string>();
-const safeStorage = createJSONStorage(() => {
+export const safeStorage = createJSONStorage(() => {
   try {
     if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
   } catch {
