@@ -7,6 +7,7 @@ single orchestrator/model registry is reused across requests.
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -19,7 +20,11 @@ from vectis.core.config import get_settings
 from vectis.core.exceptions import VectisError
 from vectis.core.logging import configure_logging, get_logger
 from vectis.database.repository import build_repository
-from vectis.realtime.live_stream import LiveClimateStream, LiveStreamBroadcaster
+from vectis.realtime.live_stream import (
+    GlobalIngestionBroadcaster,
+    LiveClimateStream,
+    LiveStreamBroadcaster,
+)
 from vectis.realtime.state.models import WorldCellState
 from vectis.realtime.state.store import MemoryStateStore
 from vectis.services.analysis_service import AnalysisService
@@ -42,13 +47,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.broadcaster = ConnectionManager()
     # ONE global V3 pipeline, fanned out to every SSE viewer (not one pipeline per connection).
     app.state.live_stream = LiveStreamBroadcaster(LiveClimateStream())
-    # The active cell set the tile endpoint screens — populated by the Session-31 global
-    # ingestion loop (`ingest_into`) when one runs; empty on a fresh boot, never fabricated.
+    # The active cell set the tile endpoint screens — populated by the global ingestion
+    # broadcaster below, which polls the Session-31 planetary feeds into it each tick.
     app.state.tile_store = MemoryStateStore[WorldCellState]()
     app.state.tile_cache = TileCache()
+    app.state.global_ingestion = GlobalIngestionBroadcaster(app.state.tile_store)
     await app.state.live_stream.start()
+    # Tests set VECTIS_GLOBAL_INGESTION=0: the loop writes real global events into the
+    # same tile_store their assertions seed, so it must not race them. The broadcaster
+    # object still exists — tests drive ticks deterministically via poll_once().
+    if os.getenv("VECTIS_GLOBAL_INGESTION", "1") != "0":
+        await app.state.global_ingestion.start()
     log.info("api.startup", env=settings.env, llm_provider=settings.llm_provider)
     yield
+    await app.state.global_ingestion.stop()
     await app.state.live_stream.stop()
     log.info("api.shutdown")
 

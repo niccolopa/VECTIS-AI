@@ -24,6 +24,10 @@ os.environ.update(
         "VECTIS_DATA_DIR": str(_TMP / "data"),
         "VECTIS_ARTIFACTS_DIR": str(_TMP / "artifacts"),
         "VECTIS_RANDOM_SEED": "42",
+        # Keep the global ingestion loop parked: it writes real worldwide events into
+        # the same tile_store the API tests seed with known cells. Tests that need
+        # ticks drive GlobalIngestionBroadcaster.poll_once() deterministically.
+        "VECTIS_GLOBAL_INGESTION": "0",
     }
 )
 

@@ -53,3 +53,20 @@ export interface V3TimelinePoint {
   confidence: number; // 0–1
   band: RiskBand;
 }
+
+/** One tick of the viewport-scoped terminal stream (Session 37).
+ * Source of truth: vectis/api/routers/live.py → terminal_frame.
+ * `cells` is the viewport's Tier-0 screened view; `events` is the *global* tape.
+ * The headline trio (risk/band/cell_id) is null when nothing screened is visible —
+ * an honest absence, never a fabricated zero. */
+export interface TerminalFrame {
+  tick: number;
+  ts: string; // ISO
+  scope: { west: number; south: number; east: number; north: number; zoom: number };
+  resolution: number;
+  cells: import("@/types/tiles").TileCell[];
+  events: V3Event[];
+  risk: number | null; // hottest screened score in the viewport, 0–100
+  band: RiskBand | null;
+  cell_id: string | null; // the cell carrying that hottest score
+}

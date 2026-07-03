@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -34,6 +35,7 @@ from vectis.realtime.forecasting.bayesian.priors import ScenarioPriors
 from vectis.realtime.forecasting.bayesian.updater import ContinuousBayesianUpdater
 from vectis.realtime.forecasting.kalman.state_model import KalmanCellState
 from vectis.realtime.forecasting.kalman.updater import KalmanStateUpdater
+from vectis.realtime.ingestion.global_feeds import build_global_ingestion_manager, ingest_into
 from vectis.realtime.ingestion.manager import IngestionManager
 from vectis.realtime.pipeline import (
     _DRIVER_LABELS,
@@ -42,7 +44,8 @@ from vectis.realtime.pipeline import (
     default_scenario_profiles,
 )
 from vectis.realtime.state.cell_id import assign_cell_id
-from vectis.realtime.state.store import MemoryStateStore
+from vectis.realtime.state.models import WorldCellState
+from vectis.realtime.state.store import MemoryStateStore, StateStore
 from vectis.realtime.streams.broker import DEFAULT_TOPIC, MemoryBroker
 from vectis.realtime.streams.producer import EventProducer
 from vectis.simulation.engine.runner import VectorizedMonteCarloEngine
@@ -305,6 +308,11 @@ class LiveStreamBroadcaster:
         self._latest: dict[str, Any] | None = None
         self._task: asyncio.Task[None] | None = None
 
+    @property
+    def pipeline(self) -> ContinuousPipeline:
+        """The single global pipeline — read-only access for API views (cell briefs)."""
+        return self._stream.pipeline
+
     async def start(self) -> None:
         if self._task is None:
             self._task = asyncio.create_task(self._run())
@@ -331,6 +339,92 @@ class LiveStreamBroadcaster:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=8)
         if self._latest is not None:
             queue.put_nowait(self._latest)
+        self._subscribers.add(queue)
+        try:
+            while True:
+                yield await queue.get()
+        finally:
+            self._subscribers.discard(queue)
+
+
+class GlobalIngestionBroadcaster:
+    """One worldwide ingestion loop, fanned out to every terminal viewer (Session 37).
+
+    Generalizes the Session-24 single-region transport to global scope. Each tick polls
+    the four Session-31 planetary feeds (Open-Meteo weather, NASA FIRMS, USGS quakes,
+    GDACS alerts) **once** and folds every event into the shared tile store at its real
+    H3 cell — so the Tier-0 screen, the tile endpoint, and every viewport-scoped SSE
+    stream all track the same live world. Subscribers receive each tick's *global*
+    event batch (display-ready views, the ticker's tape); which cells a viewer renders
+    is its viewport's business, resolved per connection at the API layer.
+
+    Session 38 (shared broadcast pipeline) replaces the per-connection viewport
+    screening layered on top of this; the expensive part here — network polling and
+    state writes — already happens exactly once regardless of viewer count.
+    """
+
+    def __init__(
+        self,
+        store: StateStore[WorldCellState],
+        *,
+        manager: IngestionManager | None = None,
+        tick_seconds: float = LIVE_TICK_SECONDS,
+        max_recent_events: int = 100,
+    ) -> None:
+        self._store = store
+        self._manager = manager or build_global_ingestion_manager()
+        self._tick_seconds = tick_seconds
+        # Newest-first backlog so a fresh terminal shows the tape immediately on connect.
+        self._recent: deque[dict[str, Any]] = deque(maxlen=max_recent_events)
+        self._subscribers: set[asyncio.Queue[list[dict[str, Any]]]] = set()
+        self._task: asyncio.Task[None] | None = None
+
+    async def start(self) -> None:
+        if self._task is None:
+            self._task = asyncio.create_task(self._run())
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._task
+            self._task = None
+
+    def poll_once(self) -> list[dict[str, Any]]:
+        """One synchronous ingestion cycle: poll every feed into the store; return views.
+
+        The loop's unit of work, exposed so tests (and a future scheduler) can drive
+        ticks deterministically without the background task.
+        """
+        views = [_event_view(e) for e in ingest_into(self._manager, self._store)]
+        for view in reversed(views):
+            self._recent.appendleft(view)
+        return views
+
+    async def _run(self) -> None:
+        while True:
+            try:
+                views = await asyncio.to_thread(self.poll_once)
+            except Exception:
+                # One bad upstream response must not silently kill the planet's
+                # ingestion forever — log it, skip the tick, poll again.
+                logger.exception("[ERROR] global ingestion cycle failed; retrying next tick")
+                views = []
+            for queue in list(self._subscribers):
+                if queue.full():  # slow consumer — drop its oldest batch, never stall
+                    with suppress(asyncio.QueueEmpty):
+                        queue.get_nowait()
+                queue.put_nowait(views)
+            await asyncio.sleep(self._tick_seconds)
+
+    async def subscribe(self) -> AsyncIterator[list[dict[str, Any]]]:
+        """Yield event batches to one viewer, starting with the recent backlog.
+
+        The first batch is delivered immediately (even if empty) so a connecting
+        terminal paints its viewport without waiting out a tick interval.
+        """
+        queue: asyncio.Queue[list[dict[str, Any]]] = asyncio.Queue(maxsize=8)
+        queue.put_nowait(list(self._recent))
         self._subscribers.add(queue)
         try:
             while True:
