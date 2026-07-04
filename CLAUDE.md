@@ -1,9 +1,7 @@
-## graphify
+## graphify (optional tooling)
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+This project ships a pre-generated knowledge graph under `graphify-out/` (god nodes, community structure, cross-file relationships). It is a **convenience, not a requirement** — the codebase is fully navigable without it.
 
-Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- If the `graphify` CLI happens to be on your PATH, you may use it to orient quickly: `graphify query "<question>"`, `graphify path "<A>" "<B>"`, `graphify explain "<concept>"`. `graphify-out/wiki/index.md` and `graphify-out/GRAPH_REPORT.md` are plain files you can read directly for navigation.
+- If `graphify` is **not** installed, ignore it and use normal code search (ripgrep/grep, file reads). **Do not install it or spend time troubleshooting its absence** — chasing a missing graphify has stalled sessions in this repo before. The graph files are static docs; a stale graph is harmless.
+- After changing code, `graphify update .` refreshes the graph *if* you have the CLI. Skip it otherwise.
