@@ -18,7 +18,8 @@ them with an auditable AI board whose numbers are produced entirely by determini
 
 ---
 
-<img width="1918" height="862" alt="image" src="https://github.com/user-attachments/assets/da80275e-d949-4c37-b44a-9d7431bf7c5c" />
+<img width="1918" height="908" alt="image" src="https://github.com/user-attachments/assets/e175dd4d-37da-47e5-9ed6-00d8d0d60473" />
+
 
 
 ## What VECTIS is
