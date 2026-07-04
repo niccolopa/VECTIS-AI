@@ -4,6 +4,14 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
+> **How this file is ordered.** Newest-first. The detailed session log runs in **reverse
+> chronological order** from **Sessions 38 & 39** (the current state) back to Session 26,
+> then the original handoff for **Sessions 1–25** is preserved as an archive below the
+> `## Goal` marker. The single current next step is **Session 40 — Hardening & the Honest
+> Global Scale Test** (spelled out at the end of the Sessions 38 & 39 section). Every other
+> "Next Steps" line is that session's own historical pointer to the one that followed it —
+> not a live to-do.
+
 Last updated: **2026-07-04** · End of **Sessions 38 & 39** (Demand-Driven Compute &
 Watchlists + Persistence, History & Playback — **COMPLETE**: simulation compute is now
 **demand-driven and shared** — one `SharedComputeLoop` owns all expensive work per tick
@@ -1516,6 +1524,14 @@ is present; (c) code-split the 2.3 MB frontend bundle (three.js + maplibre) flag
 > repo-structure docs, formatting baseline, security review) — no product features.
 
 ---
+
+# ─── ARCHIVE: original handoff (Sessions 1–25) ───
+
+*Everything below is the original handoff document, preserved as-is for history. It runs
+in forward chronological order (Sessions 1 → 25) and reflects the V1/V2/early-V3 state at
+the time it was written — its test counts, "Next Steps", and "V3 vision" are historical
+snapshots, since superseded by the newest-first V4 log at the top of this file. The current
+state and next step (Session 40) live at the top, not here.*
 
 ## Goal
 
@@ -3315,7 +3331,13 @@ All three audit findings closed; 147 backend tests pass (was 142), ruff + mypy c
   `C408` rejects `dict(...)` literals, `I001` import ordering (stdlib `concurrent.futures` before
   third-party `numpy`). All trivially fixed; mypy is scoped to `vectis/` only (tests untyped is fine).
 
-## Next Steps — Handover to the community & V3 vision
+## Next Steps — Handover to the community & V3 vision *(archived — end of V2, superseded)*
+
+> **Historical.** This was the "next steps" at the close of V2 (Session 15). V3 and the
+> entire V4 arc (Sessions 16–39) have since been built — live feeds, persistence & history,
+> multi-hazard tiered compute, and global scale are all delivered. The current next step is
+> **Session 40**, at the top of this file. The V3 vision and backlog below are kept only as
+> a record of what was planned then.
 
 **V2 is complete and released.** The full arc S1→S15 is done: V1 reactive vertical, then the V2
 probabilistic engine (Monte Carlo, Bayesian update, real-time streaming, digital twin, LLM board),
