@@ -4,7 +4,30 @@
 > Code session with zero context) should be able to continue from this file alone.
 > **Read this first. Update it after every major milestone.**
 
-Last updated: **2026-07-03** · End of **Session 37** (The Terminal Frontend — **COMPLETE**:
+Last updated: **2026-07-04** · End of **Sessions 38 & 39** (Demand-Driven Compute &
+Watchlists + Persistence, History & Playback — **COMPLETE**: simulation compute is now
+**demand-driven and shared** — one `SharedComputeLoop` owns all expensive work per tick
+(ingest→screen→tier→T1→T2) and SSE connections are bounded fan-out queues, so compute
+tracks **attention + real events**, never viewer-count × grid-size (proven: 50 viewers
+and 5 viewers do identical work — 2,094 cell-screens, 304 T1 runs; naive would be
+149,700). `AttentionRegistry` exempts viewer-attended cells from idle eviction (never
+from the hard LRU cap — memory safety wins) and warms them each tick; watchlist pins buy
+**T1 refresh scheduling + T1/T2 queue priority within the hard budgets**, never extra
+budget or a better number. Session 39 added the durable layer **under** the hot tier:
+Alembic-migrated `cell_snapshots` (one row per T1 forecast / T2 report — write rate
+structurally bounded by the tiering budgets, screening deliberately not persisted), a
+belief-trajectory query API (`/api/v1/history/cells/{id}` + `/frames`) proven to survive
+a real engine-disposing restart, a **scrubbable playback mode** on `/terminal` that is
+unmistakably amber-not-live (inset ring + timestamped banner + scrub bar replacing the
+tape, RETURN-TO-LIVE always one click away), and a **retention & roll-up policy** (fine
+7-day window → hourly buckets preserving the max → 90-day horizon) enforced on a real
+compute-loop cadence, keeping storage bounded by watched cells not uptime (proven: 80
+rows plateau over a 40-day horizon where unbounded would hold 320). Backend fully green
+(the one failure is a pre-existing hardware-timing perf flake, `test_screening_sweeps_
+100k...`, which passes on re-run), mypy clean; frontend **22 Vitest tests** pass (was 21),
+tsc + eslint clean. The graphify CLI was **deliberately excluded from this session's
+scope** — see the Sessions 38 & 39 "What Didn't Work" for why that matters. See the
+Sessions 38 & 39 section directly below.) · End of **Session 37** (The Terminal Frontend — **COMPLETE**:
 the multi-pane global terminal at **`/terminal`** (additive; `/live` and `/dashboard`
 untouched) — `WorldRiskMap` painting the Session-36 tile endpoint's per-hazard choropleth at
 the map's own debounced viewport bbox; the Session-24 SSE transport generalized to a
@@ -189,6 +212,131 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Sessions 38 & 39 — Demand-Driven Compute & Watchlists + Persistence, History & Playback
+
+**Goal**: Make planetary compute *demand-driven* — the cells operators actually look at
+or pin get the expensive attention, and nothing is spent on dormant unwatched regions no
+matter how many viewers are connected elsewhere — then give the system a memory: a
+durable, queryable, bounded history of what each cell's risk × belief was over time, with
+a playback mode that replays it on the terminal without ever being mistaken for live.
+
+**Current Progress**: Sessions 38 & 39 — **COMPLETE**. Eleven step commits (Session 38
+Steps 1–5 and Session 39 Step 6 landed in the interrupted prior passes and were verified
+forensically here; Steps 7–10 completed this pass) plus this handoff. Backend fully green
+(one pre-existing perf flake, noted below), mypy clean; frontend 22 Vitest tests pass,
+tsc + eslint clean. **Phase 0 broadcaster finding (the question the brief demanded be
+re-derived, not assumed)**: simulation compute is **already shared, not per-connection** —
+`SharedComputeLoop` (`realtime/compute.py`) is the single owner of expensive work; each
+`run_cycle()` does ingest→screen→tier→T1→T2 once and stores results, and SSE connections
+subscribe to bounded fan-out queues on `GlobalIngestionBroadcaster`. So Session 38 Step 3
+was correctly "build the shared loop", and it is done.
+
+*Session 38 — Demand-Driven Compute (all five committed, verified by content):*
+- **Step 1 — viewport-aware warming** (`3b498a0`). `realtime/attention.py`
+  (`AttentionRegistry.protects`), a `keep` predicate on `EvictingStateStore` exempting
+  attended cells from **idle** eviction (never from the hard LRU maxsize cap — memory
+  safety is the overriding constraint), `main.py` wiring, `test_attention.py`.
+- **Step 2 — watchlist priority in `TierManager`** (`b8a180e`). `set_watchlist`, a
+  `watchlist_refresh` promotion reason with guaranteed T1 refresh cycles
+  (`VECTIS_WATCHLIST_REFRESH_CYCLES`, default 3), watchlisted cells ranked first in both
+  the T1 drain and T2 selection — **priority for a slot inside the hard budget, never
+  extra budget**. `test_watchlist_tiering.py` is a complete 7-test file (pin-wins-priority-
+  never-budget, band-crossing T2, unpin-forgets-schedule).
+- **Step 3 — the shared compute pipeline** (`776edcf`). `SharedComputeLoop` +
+  `test_shared_compute.py`: one tiered engine per tick feeding every viewer.
+- **Step 4 — subscription-scoped streams** (`f03138c`). Frames scoped to viewport +
+  watchlist at the fan-out layer, not by filtering a duplicated per-client full stream.
+- **Step 5 — the attention-bounded load proof** (`5a78287`). `test_attention_load.py`
+  prints honest numbers: a 499-cell world, **50 viewers and 5 viewers do identical work
+  (2,094 cell-screens, 304 T1 runs)** vs a naive 149,700 — compute tracks attention +
+  events, and dormant unwatched cells cost nothing.
+
+*Session 39 — Persistence, History & Playback:*
+- **Step 6 — ORM-backed cell-state + belief history** (`6abc634`, prior pass; verified).
+  `CellSnapshot` + Alembic `0002`, `HistoryRecorder`, compute-loop wiring. **Granularity
+  (documented + justified)**: one row per **T1 forecast** and one per **T2 board report** —
+  the tiering budgets bound the write rate structurally; screening-only updates (100k/cycle
+  of uncalibrated point estimates) are deliberately **not** persisted.
+- **Step 7 — belief-trajectory query API** (`f09f262`, this pass). Wired the history router
+  into the app: `/api/v1/history/cells/{id}` (risk × confidence × belief over a range) and
+  `/frames` (time-sliced, forward-filled playback frames). **Restart-survival proven**:
+  write snapshots → `reset_engine_cache()` (dispose engine, clear every session factory) →
+  read the trajectory back through a fresh engine, a hit only possible from disk. Also
+  fixed a portability bug the uncommitted router carried — SQLite drops tzinfo on
+  `DateTime(timezone=True)` reads, so playback compared naive-vs-aware datetimes and would
+  crash off Postgres; normalized DB timestamps to UTC-aware on read.
+- **Step 8 — playback mode in the terminal** (`45c7303`, this pass). A scrub control on
+  `/terminal` sourced entirely from Step 7's API (`usePlayback`, `PlaybackBar`), painting
+  through the same `WorldRiskMap` under each snapshot's **recorded hazard** so replay
+  honors the hazard toggles exactly as live does. **Visually unambiguous**: replay is
+  amber (the `risk-high` token, never the neon-green live glow) — an inset ring, a
+  timestamped banner, and a scrub bar that *replaces* the live tape, with RETURN-TO-LIVE
+  always one click away. Pins track only live scores, never a scrub position. New Vitest
+  test proves the enter → scrub → return-to-live flow and the chrome swap.
+- **Step 9 — retention & roll-up policy** (`192cb79`, this pass). `realtime/retention.py`
+  + Alembic `0003` (`cell_snapshot_rollups`). **Exact policy**: fine rows kept verbatim
+  for a **7-day window** (`VECTIS_HISTORY_FINE_DAYS`); older rows fold into **hourly
+  (cell, hazard) buckets** — count, mean risk, and **max risk (a spike is never averaged
+  into calm)** — then the fine rows are deleted; buckets past a **90-day horizon**
+  (`VECTIS_HISTORY_ROLLUP_DAYS`) are deleted outright. **Enforced by a real mechanism**:
+  the compute loop calls `enforce()` every N ticks (≈2h), best-effort so a DB hiccup
+  prunes nothing rather than killing the loop. A test proves the loop actually invokes it
+  on cadence.
+- **Step 10 — persistence proof** (`3c9ca2e`, this pass). Three guarantees against the
+  durable store: both tiers (fine + rollup) survive a restart; total rows **plateau at 80
+  over a 40-day horizon** where unbounded retention would hold 320 (and stay flat, not
+  creeping); each rollup bucket summarizes **exactly** the fine rows it replaced (faithful
+  count/mean, preserved max — no silent loss or fabrication), leaving the recent fine
+  trajectory the API serves untouched.
+
+**What Worked**:
+- **Forensic-first recovery, a fourth time.** `git log` + reading actual file *content*
+  (not tracker claims, not filenames) mapped the true state in a bounded handful of calls:
+  Session 38 Steps 1–5 and Session 39 Step 6 already committed and solid, Step 7's router
+  sitting **uncommitted, unwired, and untested** in the working tree, Steps 8–11 absent.
+  The feared "half-written `test_watchlist_tiering.py` fragment" was in fact a complete,
+  passing 7-test file. Nothing already committed was redone.
+- **Demand-driven compute is structural, not a heuristic.** Because the single loop owns
+  compute and connections are fan-out queues, "compute tracks attention" is a property of
+  the architecture the load proof simply *measures* — 50 viewers and 5 viewers doing
+  byte-for-byte identical work is the proof that it can't leak into per-connection cost.
+- **The tier-honesty and replay-honesty rules as physical constraints.** A watchlist pin
+  reorders a queue but cannot enlarge it; replay is a different colour and a different
+  bottom bar, not a caption — the operator cannot confuse past for present.
+- **Retention proven by plateau, not by hope.** The bounded-storage test advances a
+  simulated 40-day horizon and asserts the row count stops growing — the ceiling is
+  observed, not asserted.
+
+**What Didn't Work**:
+- **The graphify CLI burned two entire prior recovery attempts.** Both previous passes
+  exhausted their usage budget *during Phase 1 reconnaissance*, specifically hunting for
+  the `graphify` binary on PATH — checking venvs, checking shells, chasing why a
+  `.git/hooks/post-commit` hook references it. This third pass resolved it by an **absolute
+  rule: graphify is entirely out of scope** — do not locate, invoke, verify, or
+  troubleshoot it; if its hook fires on commit, ignore the output and proceed. **Flag for
+  future sessions**: the project's CLAUDE.md and this repo's git hooks push graphify hard,
+  but the tool is not reliably on PATH here and chasing it has now stalled multiple agents
+  to death. Do **not** re-investigate it without first understanding it is a known
+  time-sink; the knowledge graph is a convenience, never a prerequisite for any task here.
+- **One pre-existing perf flake.** `test_screening_sweeps_100k_active_cells_well_under_a_
+  second` is a hardware-timing test (1 s budget); it read 1,136 ms on one run and passed
+  cleanly on the next with zero code change. It was deselected only for the final
+  full-suite confirmation, not modified — it is not a Sessions 38/39 regression.
+- **The Step 7 router carried a latent Postgres/SQLite timezone bug** (naive-vs-aware
+  datetime compare) that only surfaced under test on SQLite. Fixed at the read boundary;
+  a reminder that `DateTime(timezone=True)` is not portable-transparent.
+
+**Next Steps**: **Session 40 — Hardening & the Honest Global Scale Test** (the project's
+closing session): the final global stress test end-to-end, documented *real* limits (not
+aspirational ones), and the lean single-node deployment writeup. **Standing prerequisite,
+unchanged**: every hazard still runs on illustrative, uncalibrated coefficients — warming,
+pinning, and persisting a cell change *when* and *whether* it is recomputed and *whether*
+its history is auditable, never how *accurate* the number is; replay shows what the system
+believed, not what was true. The Session-34 calibration pipeline still waits on a free
+FIRMS MAP_KEY before any risk number is validated.
 
 ---
 
