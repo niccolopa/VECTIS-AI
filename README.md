@@ -50,6 +50,26 @@ The first complete vertical is **Climate (wildfire) Risk Intelligence**, demoed
 end-to-end on **California, USA**. It runs **fully offline** with a deterministic mock
 LLM and a bundled dataset — **no API keys required**.
 
+### Two analysis systems in one console — don't confuse them
+
+VECTIS ships **two architecturally distinct** analysis surfaces. They look similar but
+are **not** the same system, and one is **not** a subset of the other:
+
+| | **Global Terminal** (V4) | **California Case Study** (V1 legacy demo) |
+|---|---|---|
+| Where | Sidebar → **Global Terminal** (`/terminal`) | Sidebar → **V1 Legacy Demo** → *California Case Study* / *Case Study Reports* |
+| Scope | **Worldwide** H3 grid, every continent | **California only** — nowhere else |
+| Data | Live **FIRMS · USGS · GDACS · Open-Meteo** feeds | A fixed **240-cell California sample** from Session 1 |
+| Engine | Tier-0 screening → Tier-1 Monte Carlo → Tier-2 board, demand-driven | A scikit-learn **logistic regression** → 6-agent board with **SHAP** |
+| Deep report | On any cell **the grid has data for**, when real activity promotes it to T1/T2 | On the **California sample only** — the model was never trained anywhere else |
+
+The Case Study exists because it was VECTIS's **origin** (Sessions 1–15) and remains a
+clean, offline, explainable demo of the reactive pipeline. It is **California-bound by
+construction**: its ML model was fitted on that one sample and cannot be pointed at another
+region without retraining. The **Global Terminal is region-agnostic by design** and is the
+system to use for planet-scale, live analysis. The sidebar and each legacy page carry an
+explicit banner so the two are never mistaken for one another.
+
 ---
 
 ## The engineering that makes it serious

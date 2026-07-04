@@ -1,5 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { PageContainer, PageHeader } from "@/components/layout/Page";
+import { LegacyDemoBanner } from "@/components/LegacyDemoBanner";
 import { Button, ErrorState, LoadingState } from "@/components/ui";
 import { ReportViewer } from "@/features/reports/ReportViewer";
 import { useAnalysis } from "@/hooks/queries";
@@ -19,6 +20,7 @@ export function ReportDetailPage() {
           </Link>
         }
       />
+      <LegacyDemoBanner />
       {isLoading ? (
         <LoadingState />
       ) : isError || !report ? (

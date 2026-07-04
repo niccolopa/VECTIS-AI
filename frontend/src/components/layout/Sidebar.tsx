@@ -24,25 +24,32 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 p-2">
-        {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === "/"}
-            title={collapsed ? label : undefined}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                collapsed && "justify-center px-0",
-                isActive
-                  ? "bg-accent/15 text-accent"
-                  : "text-muted hover:bg-surface-3 hover:text-text",
-              )
-            }
-          >
-            <Icon className="shrink-0" />
-            {!collapsed && <span className="truncate">{label}</span>}
-          </NavLink>
+        {NAV_ITEMS.map(({ to, label, icon: Icon, section }) => (
+          <div key={to}>
+            {section && !collapsed && (
+              <div className="mt-4 mb-1 px-3 pt-2 border-t border-border text-2xs uppercase tracking-wider text-muted-2">
+                {section}
+              </div>
+            )}
+            {section && collapsed && <div className="my-2 mx-2 border-t border-border" />}
+            <NavLink
+              to={to}
+              end={to === "/"}
+              title={collapsed ? label : undefined}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                  collapsed && "justify-center px-0",
+                  isActive
+                    ? "bg-accent/15 text-accent"
+                    : "text-muted hover:bg-surface-3 hover:text-text",
+                )
+              }
+            >
+              <Icon className="shrink-0" />
+              {!collapsed && <span className="truncate">{label}</span>}
+            </NavLink>
+          </div>
         ))}
       </nav>
 

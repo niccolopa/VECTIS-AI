@@ -1,4 +1,5 @@
 import { PageContainer, PageHeader } from "@/components/layout/Page";
+import { LegacyDemoBanner } from "@/components/LegacyDemoBanner";
 import { Button, Card, EmptyState, ErrorState, LoadingState } from "@/components/ui";
 import { RiskMap } from "@/components/map/RiskMap";
 import { WORLD, WORLD_ZOOM } from "@/components/map/world";
@@ -15,8 +16,8 @@ export function RiskIntelligencePage() {
   return (
     <PageContainer full>
       <PageHeader
-        title="Climate Risk Intelligence"
-        subtitle="Wildfire risk by region, with model-attributed drivers."
+        title="California Case Study — V1 Legacy Demo"
+        subtitle="The original reactive pipeline: California-trained wildfire model with SHAP-attributed drivers."
         actions={
           <>
             <RegionSelector value={regionKey} onChange={setRegion} />
@@ -30,6 +31,8 @@ export function RiskIntelligencePage() {
           </>
         }
       />
+
+      <LegacyDemoBanner />
 
       {run.isError && (
         <div className="mb-3 rounded-lg border border-risk-severe/40 bg-risk-severe/10 px-3 py-2 text-xs text-risk-severe">

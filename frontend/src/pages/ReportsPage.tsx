@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { PageContainer, PageHeader } from "@/components/layout/Page";
+import { LegacyDemoBanner } from "@/components/LegacyDemoBanner";
 import {
   Badge,
   Card,
@@ -40,7 +41,8 @@ export function ReportsPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Decision Reports" subtitle="Every analysis VECTIS has produced. Select one to view the full report." />
+      <PageHeader title="Case Study Reports — V1 Legacy Demo" subtitle="Every California Case Study analysis the V1 pipeline has produced. Select one to view the full report." />
+      <LegacyDemoBanner />
       <Card flush>
         {isLoading ? (
           <LoadingState />
@@ -52,7 +54,7 @@ export function ReportsPage() {
             rows={analyses ?? []}
             rowKey={(r) => r.id}
             onRowClick={(r) => navigate(`/reports/${r.id}`)}
-            empty={<EmptyState title="No reports yet" message="Run an analysis from Risk Intelligence." />}
+            empty={<EmptyState title="No reports yet" message="Run an analysis from the California Case Study page." />}
           />
         )}
       </Card>
