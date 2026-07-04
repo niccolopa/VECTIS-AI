@@ -52,6 +52,7 @@ class FrameCell(BaseModel):
     lon: float
     risk: float
     confidence: float
+    hazard: str = Field(description="Worst hazard the snapshot ran on — paints under it.")
 
 
 class PlaybackFrame(BaseModel):
@@ -156,7 +157,7 @@ def playback_frames(
                 cells=[
                     FrameCell(
                         cell_id=s.cell_id, lat=s.lat, lon=s.lon,
-                        risk=s.risk_score, confidence=s.confidence,
+                        risk=s.risk_score, confidence=s.confidence, hazard=s.hazard,
                     )
                     for s in latest.values()
                 ],

@@ -23,7 +23,9 @@ import { WorldRiskMap } from "@/components/map/WorldRiskMap";
 import { Badge } from "@/components/ui";
 import { GlobalEventTicker } from "@/features/terminal/GlobalEventTicker";
 import { HazardToggle } from "@/features/terminal/HazardToggle";
+import { PlaybackBar } from "@/features/terminal/PlaybackBar";
 import { RegionBriefPanel } from "@/features/terminal/RegionBriefPanel";
+import { usePlayback } from "@/features/terminal/usePlayback";
 import { useTiles } from "@/features/terminal/useTiles";
 import { WatchlistPanel } from "@/features/terminal/WatchlistPanel";
 import { useTerminalStream } from "@/hooks/useV3Stream";
@@ -39,6 +41,7 @@ export function TerminalPage() {
 
   const tiles = useTiles(viewport);
   const stream = useTerminalStream(viewport);
+  const playback = usePlayback(viewport);
   const pin = useWatchlistStore((s) => s.pin);
   const unpin = useWatchlistStore((s) => s.unpin);
   const entries = useWatchlistStore((s) => s.entries);
@@ -46,13 +49,16 @@ export function TerminalPage() {
   const isPinned = (cellId: string) => entries.some((e) => e.cellId === cellId);
 
   // Freshest cells win: live frames when the stream has delivered, HTTP tiles otherwise.
-  const cells: TileCell[] = stream.latest != null ? stream.cells : tiles.cells;
+  const liveCells: TileCell[] = stream.latest != null ? stream.cells : tiles.cells;
+  // In replay the map paints the scrubbed historical frame instead of anything live.
+  const cells: TileCell[] = playback.active ? playback.cells : liveCells;
 
-  // Keep pinned entries' last-known headline scores fresh as data flows through.
+  // Keep pinned entries' last-known headline scores fresh as *live* data flows through
+  // (never from replay — a pin's headline must track now, not a past scrub position).
   useEffect(() => {
-    if (cells.length === 0) return;
-    updateScores(Object.fromEntries(cells.map((c) => [c.cell_id, c.hazards])));
-  }, [cells, updateScores]);
+    if (playback.active || liveCells.length === 0) return;
+    updateScores(Object.fromEntries(liveCells.map((c) => [c.cell_id, c.hazards])));
+  }, [liveCells, playback.active, updateScores]);
 
   const onViewportChange = useCallback((v: Viewport) => setViewport(v), []);
   const onSelectCell = useCallback(
@@ -88,9 +94,23 @@ export function TerminalPage() {
         </div>
         <div className="ml-auto flex items-center gap-3">
           <HazardToggle active={activeHazards} onChange={setActiveHazards} />
-          <Badge tone={stream.connected ? "success" : "muted"}>
-            {stream.connected ? "● stream live" : "stream offline"}
-          </Badge>
+          {playback.active ? (
+            <Badge tone="warning">◀ replay mode</Badge>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={playback.enter}
+                disabled={viewport == null}
+                className="rounded border border-border-strong px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-muted hover:bg-surface-3 hover:text-text disabled:opacity-40"
+              >
+                ◀ replay
+              </button>
+              <Badge tone={stream.connected ? "success" : "muted"}>
+                {stream.connected ? "● stream live" : "stream offline"}
+              </Badge>
+            </>
+          )}
         </div>
       </div>
 
@@ -105,6 +125,16 @@ export function TerminalPage() {
             onViewportChange={onViewportChange}
             focus={focus}
           />
+          {/* Replay chrome: an unmissable amber inset ring + banner so the map can
+              never be mistaken for live while scrubbing the past. */}
+          {playback.active && (
+            <>
+              <div className="pointer-events-none absolute inset-0 z-10 ring-2 ring-inset ring-risk-high" />
+              <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-risk-high bg-bg/80 px-3 py-1 text-2xs font-bold uppercase tracking-[0.2em] text-risk-high backdrop-blur">
+                ◀ Replay — {playback.currentTs ? playback.currentTs.slice(0, 16).replace("T", " ") + " UTC" : "…"}
+              </div>
+            </>
+          )}
           <div className="pointer-events-none absolute left-3 top-3 z-10 rounded-full border border-border-strong bg-bg/70 px-2.5 py-1 text-2xs text-muted backdrop-blur">
             {cells.length} cells in view
             {tiles.resolution != null && ` · H3 res ${stream.latest?.resolution ?? tiles.resolution}`}
@@ -124,8 +154,12 @@ export function TerminalPage() {
         </div>
       </div>
 
-      {/* Edge strip: the worldwide tape */}
-      <GlobalEventTicker events={stream.events} />
+      {/* Edge strip: the scrub timeline in replay, the worldwide tape when live */}
+      {playback.active ? (
+        <PlaybackBar playback={playback} />
+      ) : (
+        <GlobalEventTicker events={stream.events} />
+      )}
     </div>
   );
 }
