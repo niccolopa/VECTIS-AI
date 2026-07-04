@@ -1,7 +1,13 @@
-# VECTIS full-stack local environment: PostGIS + FastAPI backend + React frontend.
-# `docker compose up --build` brings the whole platform online. The backend
-# seeds the deterministic Liguria sample on first start, so the demo works with
-# zero external API keys (LLM provider defaults to `mock`).
+# VECTIS lean single-node stack: PostGIS + Redis + the Sluice ingestion gateway +
+# FastAPI backend + React frontend. `docker compose up --build` brings the whole
+# platform online on one box. The backend seeds the deterministic California sample
+# and trains the V1 baseline on first start, so the demo works with zero external
+# API keys (LLM provider defaults to `mock`).
+#
+# This is the whole production topology on a single node. Horizontal scale is
+# available-but-not-required: add backend replicas behind a load balancer, all
+# sharing this same Redis (state + broker) and PostGIS (durable history) — see
+# docs/deployment.md. Nothing here needs to change to get there.
 
 services:
   db:
@@ -20,29 +26,75 @@ services:
       timeout: 5s
       retries: 10
 
+  # Shared hot-tier state store + event broker backend for the Redis-ready seams
+  # (VECTIS_STATE_BACKEND=redis / VECTIS_BROKER=redis). On a single node it is the
+  # cross-process bus; it is also exactly what a second backend replica would share,
+  # which is why horizontal scale needs no rewiring. Cache-only: nothing durable
+  # lives *only* in Redis (that is PostGIS's job), so it runs without persistence.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # The Sluice — VECTIS's optional outbound feed gateway (Session 31): credential
+  # failover, retry, and normalization in front of NASA FIRMS / USGS / GDACS. Same
+  # image as the backend, different entrypoint. Runs keyless (health-only) until you
+  # set VECTIS_SLUICE_FIRMS_KEYS; connectors fall back to direct/offline either way.
+  sluice:
+    build: ./backend
+    image: vectis-backend
+    command: ["uvicorn", "vectis.ingress.sluice:app", "--host", "0.0.0.0", "--port", "8900"]
+    environment:
+      VECTIS_SLUICE_FIRMS_KEYS: ${VECTIS_SLUICE_FIRMS_KEYS:-}
+    ports:
+      - "8900:8900"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8900/health\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   backend:
     build: ./backend
+    image: vectis-backend
     environment:
       VECTIS_ENV: development
       VECTIS_DATABASE_URL: postgresql+psycopg://vectis:vectis@db:5432/vectis
       VECTIS_LLM_PROVIDER: ${VECTIS_LLM_PROVIDER:-mock}
       VECTIS_ANTHROPIC_API_KEY: ${VECTIS_ANTHROPIC_API_KEY:-}
       VECTIS_CORS_ORIGINS: http://localhost:5173
+      # Redis-backed state store + broker seams point at the redis service.
+      VECTIS_REDIS_URL: redis://redis:6379/0
+      VECTIS_STATE_BACKEND: ${VECTIS_STATE_BACKEND:-redis}
+      VECTIS_BROKER: ${VECTIS_BROKER:-redis}
+      # Ingest through the Sluice gateway (drop-in; connectors fall back if it 502s).
+      VECTIS_FIRMS_BASE_URL: http://sluice:8900
+      VECTIS_USGS_BASE_URL: http://sluice:8900
+      VECTIS_GDACS_BASE_URL: http://sluice:8900
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      sluice:
+        condition: service_healthy
     # Apply DB migrations, seed sample + train baseline model, then serve.
     command: >
       sh -c "
-      sleep 10 &&
       alembic upgrade head &&
       python -m vectis.scripts.generate_sample &&
       python -m vectis.scripts.train &&
       uvicorn vectis.api.main:app --host 0.0.0.0 --port 8000
       "
-    # /health only answers once migrate+seed+train finish and uvicorn is serving,
+    # /docs only answers once migrate+seed+train finish and uvicorn is serving,
     # so this gates the frontend on a fully-ready backend. urllib avoids adding
     # curl to the slim image. start_period covers the one-time train on boot.
     healthcheck:
@@ -51,7 +103,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 180s
-
 
   frontend:
     build:
