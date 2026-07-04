@@ -39,6 +39,7 @@ from vectis.realtime.events.base import CellId
 from vectis.realtime.history import HistoryRecorder
 from vectis.realtime.live_stream import GlobalIngestionBroadcaster
 from vectis.realtime.pipeline import ForecastResult
+from vectis.realtime.retention import RetentionPolicy
 from vectis.realtime.screening.sweep import GlobalScreeningSweep
 from vectis.realtime.state.models import WorldCellState
 from vectis.realtime.state.store import StateStore
@@ -265,6 +266,8 @@ class SharedComputeLoop:
         runner: CellForecastRunner | None = None,
         board: SimulationBoardService | None = None,
         history: HistoryRecorder | None = None,
+        retention: RetentionPolicy | None = None,
+        retention_every: int = 240,
         tick_seconds: float = 30.0,
     ) -> None:
         self._store = store
@@ -275,6 +278,12 @@ class SharedComputeLoop:
         self._board = board
         #: Session 39: every T1 forecast / T2 report is snapshotted durably (None = off).
         self._history = history
+        #: Session 39: bound the durable history in time. Enforced every
+        #: ``retention_every`` ticks (≈2h at 30s ticks) — a real cadence, not just docs.
+        self._retention = retention if retention is not None else (
+            RetentionPolicy() if history is not None else None
+        )
+        self._retention_every = retention_every
         self._tick_seconds = tick_seconds
         self._sweeper = GlobalScreeningSweep()
         self._task: asyncio.Task[None] | None = None
@@ -336,6 +345,14 @@ class SharedComputeLoop:
                         hazard=max(scores, key=lambda h: scores[h]) if scores else "",
                         screening=scores, trigger="board_report",
                     )
+
+        # Bound the durable history in time on a cadence (best-effort inside the policy).
+        if (
+            self._retention is not None
+            and self._retention_every > 0
+            and self.tick % self._retention_every == 0
+        ):
+            self._retention.enforce()
 
         self.last_cycle = cycle
         self.tick += 1

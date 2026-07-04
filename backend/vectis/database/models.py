@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Index, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from vectis.database.base import Base
@@ -65,3 +65,34 @@ class CellSnapshot(Base):
     report_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     __table_args__ = (Index("ix_cell_snapshots_cell_ts", "cell_id", "ts"),)
+
+
+class CellSnapshotRollup(Base):
+    """Coarse older history: one hourly bucket per (cell, hazard) (Session 39).
+
+    The retention policy keeps every fine ``CellSnapshot`` row for a recent window,
+    then folds older rows into these hourly aggregates and deletes the originals — so
+    storage is bounded by *time* (a fixed number of buckets per active cell), not by how
+    long the system has run. ``risk_max`` is preserved deliberately: a brief spike in an
+    old hour must survive roll-up, never be averaged into calm (the same
+    "a hot value is never averaged away" rule the tile roll-up follows). Auditability at
+    reduced resolution, never fabricated precision.
+    """
+
+    __tablename__ = "cell_snapshot_rollups"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    cell_id: Mapped[str] = mapped_column(String(32), index=True)
+    hazard: Mapped[str] = mapped_column(String(16))
+    #: start of the hourly bucket (UTC, truncated to the hour)
+    bucket: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    count: Mapped[int] = mapped_column(Integer)  # fine rows folded into this bucket
+    risk_mean: Mapped[float] = mapped_column(Float)
+    risk_max: Mapped[float] = mapped_column(Float)  # the spike survives roll-up
+    confidence_mean: Mapped[float] = mapped_column(Float)
+
+    __table_args__ = (
+        Index("ix_cell_snapshot_rollups_cell_bucket", "cell_id", "hazard", "bucket", unique=True),
+    )
