@@ -36,7 +36,7 @@ selects empirically by a composite of discrimination and calibration
 (`Metrics.selection_score = ROC-AUC − 0.5·Brier`) — calibration matters because the
 risk score *is* a probability. The choice, the runner-up scores, and the rationale are
 written into the **model card** and surfaced by the ML Research agent, so model
-selection is auditable. (On the bundled Liguria sample, Logistic Regression currently
+selection is auditable. (On the bundled California sample, Logistic Regression currently
 wins at ROC-AUC ≈ 0.91.)
 
 ## Evaluation

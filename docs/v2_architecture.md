@@ -30,7 +30,7 @@ flowchart TD
         UPDATER["RealTimeUpdater<br/><i>routes event → region twin</i>"]
     end
 
-    subgraph TWIN["🛰️ Digital Twin · RegionTwin (Liguria)"]
+    subgraph TWIN["🛰️ Digital Twin · RegionTwin (California)"]
         STATE["WorldState<br/>temp · rainfall · wind · ignition"]
         BAYES["Bayesian Update<br/>GaussianBayesianUpdater<br/><i>posterior belief over scenarios</i>"]
         GATE{"belief shift<br/>&gt; threshold?"}

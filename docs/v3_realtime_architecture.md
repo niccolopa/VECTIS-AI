@@ -10,7 +10,7 @@
 
 | | **V2 — Possible Worlds** | **V3 — Living System** |
 |---|---|---|
-| Scope | One region (Liguria) | **The whole world** (a global geospatial grid) |
+| Scope | One region (California) | **The whole world** (a global geospatial grid) |
 | Trigger | Discrete events posted to an endpoint | **Continuous streams** from external APIs |
 | State | One `RegionTwin` in memory | A **continuously-estimated global state** across many cells |
 | Update | On-demand, per ingested event | **Always-on** Bayesian/Kalman filtering of the live stream |

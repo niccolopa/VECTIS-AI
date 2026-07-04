@@ -10,7 +10,7 @@ import { WhatIfSimulator } from "@/features/dashboard/WhatIfSimulator";
 import { useTwinView } from "@/hooks/dashboardQueries";
 import { useTwinStream } from "@/hooks/useTwinStream";
 
-const TWIN_ID = "liguria"; // ponytail: single twin for now; add a picker via useTwins() when >1.
+const TWIN_ID = "california"; // ponytail: single twin for now; add a picker via useTwins() when >1.
 
 export function DashboardPage() {
   const { data: view, isLoading, isError, error } = useTwinView(TWIN_ID);

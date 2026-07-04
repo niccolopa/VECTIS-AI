@@ -44,7 +44,7 @@ relative humidity, wind speed, terrain slope, fuel flammability, historical fire
 A `Connector` (`data/connectors/base.py`) returns a `RawFrame` with at least the columns
 in `RAW_COLUMNS`.
 
-- **`SampleConnector`** (default) — reads the bundled, reproducible Liguria dataset from
+- **`SampleConnector`** (default) — reads the bundled, reproducible California dataset from
   `data/samples/california/cells.csv`. This is why VECTIS runs fully offline.
 - **Live stubs** (`connectors/live.py`) — `FirmsConnector` (NASA FIRMS active fire),
   `Era5Connector` (Copernicus ERA5 weather), `CopernicusLandConnector` (NDVI/land cover).
@@ -52,7 +52,7 @@ in `RAW_COLUMNS`.
 
 ### The bundled sample
 
-`backend/vectis/scripts/generate_sample.py` synthesizes a physically-plausible Liguria
+`backend/vectis/scripts/generate_sample.py` synthesizes a physically-plausible California
 grid (elevation rises inland, hotter/drier inland, etc.) with a `had_fire` label drawn as
 a noisy function of the drivers — so the ML layer learns a real, explainable signal. It
 is **deterministic** (fixed seed) and **not** real satellite data.

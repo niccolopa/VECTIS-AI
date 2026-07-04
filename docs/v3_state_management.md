@@ -12,12 +12,12 @@ into one stage: **State** and its **Update**.
 
 ## From one twin to a global field
 
-V2's State was a single `RegionTwin` for Liguria, held in memory and updated on
+V2's State was a single `RegionTwin` for California, held in memory and updated on
 demand. V3's State is a **continuous field over a global grid**: for every active
 cell on Earth, a current estimate of its physical variables *and the uncertainty
 around them*, kept live by a streaming filter.
 
-The shift in one line: V2 asked *"what is Liguria's state right now?"*; V3 maintains
+The shift in one line: V2 asked *"what is California's state right now?"*; V3 maintains
 *"what is the state of every place we have data for, and how sure are we?"* — always,
 without being asked.
 

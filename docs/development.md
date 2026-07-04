@@ -26,7 +26,7 @@ npm install
 |---|---|
 | `make migrate` | Apply database migrations (`alembic upgrade head`) |
 | `make revision m="msg"` | Autogenerate a new migration from model changes |
-| `make seed` | Generate the deterministic Liguria sample |
+| `make seed` | Generate the deterministic California sample |
 | `make train` | Train baselines, select best, write model card |
 | `make demo` | Run one analysis end-to-end, print the Decision Report |
 | `make api` | Serve the API at :8000 (`/docs` for OpenAPI) |
