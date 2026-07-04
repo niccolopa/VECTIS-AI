@@ -118,6 +118,7 @@ def create_app() -> FastAPI:
         cells,
         dashboard,
         health,
+        history,
         intelligence,
         live,
         models,
@@ -138,6 +139,7 @@ def create_app() -> FastAPI:
     app.include_router(tiles.router)
     app.include_router(cells.router)
     app.include_router(watchlist.router)
+    app.include_router(history.router)
     return app
 
 
