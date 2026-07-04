@@ -5,14 +5,38 @@
 > **Read this first. Update it after every major milestone.**
 
 > **How this file is ordered.** Newest-first. The detailed session log runs in **reverse
-> chronological order** from **Sessions 38 & 39** (the current state) back to Session 26,
-> then the original handoff for **Sessions 1–25** is preserved as an archive below the
-> `## Goal` marker. The single current next step is **Session 40 — Hardening & the Honest
-> Global Scale Test** (spelled out at the end of the Sessions 38 & 39 section). Every other
-> "Next Steps" line is that session's own historical pointer to the one that followed it —
-> not a live to-do.
+> chronological order** from **Session 40** (the current state — the V4 release) back to
+> Session 26, then the original handoff for **Sessions 1–25** is preserved as an archive
+> below the `## Goal` marker. **VECTIS V4 is released (`v4.0.0`); there is no live next step
+> inside the V4 arc** — the post-V4 frontier and the one named piece of deferred work (path
+> (B) V1/V4 unification) are in Session 40's "Next Steps". Every other "Next Steps" line is
+> that session's own historical pointer to the one that followed it — not a live to-do.
 
-Last updated: **2026-07-04** · End of **Sessions 38 & 39** (Demand-Driven Compute &
+Last updated: **2026-07-04** · End of **Session 40** (Hardening & the Honest Global Scale
+Test — **COMPLETE. VECTIS V4 RELEASE, tagged `v4.0.0`**: resolved the confirmed V1-vs-V4
+analysis-surface confusion via **path (A), clear separation + labeling** — the sidebar's
+*Risk Intelligence*/*Reports* became **California Case Study**/**Case Study Reports** under a
+**"V1 Legacy Demo"** section, each carrying a `LegacyDemoBanner` that states it is
+California-only and architecturally distinct from the region-agnostic Global Terminal, with
+a README "Two analysis systems" table + a nav honesty-guard test; scoped region naming to
+**California = the V1/V2 training-bound demo, V4 = region-agnostic** (also fixing a real
+`TWIN_ID="liguria"` 404 in the V2 dashboard, since the app registers california/nsw/attica);
+shipped `scripts/global_stress_test.py` (`make global-stress`) driving the **real
+`SharedComputeLoop`** under planet-wide activity at increasing intensity — measured on
+Windows AMD64 / 12 cores: peak cycle **< 1.5 s**, memory **~32–38 MB** for 40k active cells,
+T1/T2 budgets never breached, and the **T2 board budget confirmed the tightest bottleneck**
+(~13× slower drain than T1); documented the honest ceilings in `docs/scale_limits.md`;
+finalized + **validated end-to-end** the lean single-node Docker stack (**PostGIS + Redis +
+Sluice gateway + backend + frontend**, all healthy, real `/api/v1/tiles` served) with
+`docs/deployment.md`; overhauled the README for the release keeping the owner's four
+screenshots **byte-identical and exactly placed** with correct V1-vs-V4 attribution (top
+hero = V4 Terminal, the three below the Golden Rule = V1 California demo) and the
+uncalibrated-models caveat elevated; and rewrote `docs/demo_video_script.md` as two
+clearly-labeled segments. Backend **314 tests green**, mypy clean; frontend **24 Vitest
+tests**, tsc + eslint clean. **Deferred (named): path (B) genuine V1/V4 unification** — a
+deep SHAP/board report for any real global cell, which needs the V1 logistic re-pointed at
+the V4 hazard models. See the Session 40 section directly below.) · End of **Sessions 38 &
+39** (Demand-Driven Compute &
 Watchlists + Persistence, History & Playback — **COMPLETE**: simulation compute is now
 **demand-driven and shared** — one `SharedComputeLoop` owns all expensive work per tick
 (ingest→screen→tier→T1→T2) and SSE connections are bounded fan-out queues, so compute
@@ -220,6 +244,126 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 40 — Hardening & the Honest Global Scale Test (the V4 release)
+
+**Goal**: Close the V4 arc honestly and tag the release. Four things had to be *resolved*,
+not merely noted: (1) a **confirmed real user confusion** — the app contains two analysis
+systems that look like one thing to a new user (the V1 California reactive demo reached via
+*Risk Intelligence → Reports*, and the V4 planet-scale *Global Terminal*); (2) the standing
+California-vs-Liguria naming inconsistency, now scoped to *which system each name belongs
+to*; (3) a real, honest planet-scale stress test on the **actual V4 pipeline** with the true
+ceilings documented; and (4) a lean single-node deployment validated end-to-end. Then
+overhaul the README for the release (preserving the owner's four screenshots exactly, with
+correct V1-vs-V4 attribution), write a demo script that never confuses the two systems, and
+tag `v4.0.0`.
+
+**Current Progress: Session 40 — Hardening & the Honest Global Scale Test — COMPLETE.
+VECTIS V4 RELEASE.** Seven atomic step commits plus this handoff; backend **314 tests
+green** (308 fast + 6 slow, +1 network-gated skip), ruff + mypy clean (170 files); frontend
+**24 Vitest tests** (was 22), tsc + eslint clean. The Docker stack was validated end-to-end
+on a live engine. Step by step:
+
+- **Step 0 — the V1-vs-V4 confusion (the highest-priority fix).** Chose **path (A): clear
+  separation and labeling**, *not* (B) genuine unification. Why: path B means re-pointing
+  the V1 scikit-learn logistic (fitted on the 240-cell Session-1 California sample) at the
+  V4 hazard models/state — an ML re-architecture, not a labeling fix, and a half-unified
+  system is not shippable at a release tag. Implemented: the sidebar's *Risk Intelligence*
+  / *Reports* are relabeled **California Case Study** / **Case Study Reports** under a new
+  **"V1 Legacy Demo"** sidebar section (`nav.ts` + `Sidebar.tsx` section rendering); a
+  shared **`LegacyDemoBanner`** on both pages and the report-detail view states plainly it
+  is California-only and architecturally distinct, linking to `/terminal`; a README **"Two
+  analysis systems"** contrast table; and a Vitest **honesty guard** (`nav.test.ts`) so the
+  fence can't be silently removed. Confirmed settled (not re-litigated): the Global Terminal
+  genuinely shows worldwide H3 cells with real screening scores on every continent.
+- **Step 1 — region naming, scoped by system.** Session 28 had already retargeted the
+  bundled sample onto California, but the Makefile/docs still said "Liguria" and — a real
+  bug — `DashboardPage.tsx` pointed its twin at `TWIN_ID="liguria"`, which **404s** (the app
+  registers `california`/`new_south_wales`/`attica`, no `liguria`). Fixed the twin id and
+  swept Liguria→California across Makefile + six docs. Rationale recorded: **California is
+  the correct canonical name for the V1/V2 demo** (bound to that training sample, not
+  swappable without retraining); the **V4 Global Terminal is region-agnostic** and named
+  after no region. Test-fixture "liguria" mocks were left (internally consistent, out of
+  scope).
+- **Step 2 — the planet-scale stress test.** `scripts/global_stress_test.py` drives the
+  **real `SharedComputeLoop`** tick (screen → tier → real Monte Carlo T1 → board T2) under
+  synthetic worldwide activity at increasing intensity (1k→40k cells crossing at once over a
+  40k land-weighted global hot set; ingestion stubbed so intensity is controlled and the run
+  is offline/deterministic). `make global-stress`. Measured on **Windows AMD64, 12 logical
+  cores, Python 3.11.3**, production budgets (T1=64, T2=5/cycle): full sweep + first T1 batch
+  **~0.8–1.5 s**; drain tick **~0.5–0.6 s**; **peak cycle < 1.5 s** at every intensity;
+  memory **~32–38 MB** for 40k active cells; T1/T2 budgets **strictly held every tick** (384
+  forecasts, 30 reports over 6 ticks).
+- **Step 3 — the honest ceilings.** `docs/scale_limits.md`: T0 ≈ 100k cells/tick, T1 hard
+  64/tick, T2 hard 5/tick; memory ~1 KB/cell (~100 MB at the 100k LRU cap); single-node
+  envelope and when to scale out. **Confirmed the T2 board/LLM narration budget is still the
+  tightest bottleneck** — at 40k cells crossing at once, T2 drains **~13× slower** than T1,
+  and with a real LLM it becomes a latency/cost ceiling, not a CPU one. Accuracy-vs-throughput
+  caveat kept prominent.
+- **Step 4 — lean single-node deployment, validated.** `docker-compose.yml` is now the whole
+  production topology on one box: **PostGIS + Redis + the Sluice ingestion gateway + backend
+  + frontend**. Brought up from a clean build on a live Docker engine: db/redis/sluice/backend
+  all **healthy**; `/health` ok; `/api/v1/regions` serves california/nsw/attica; `/api/v1/tiles`
+  returns real global H3 cells with per-hazard scores; `redis-cli ping`→PONG; sluice `/health`
+  ok. `docs/deployment.md` documents it, including the **honest note that Redis backs the
+  state/broker *seams* — the default API path is in-memory**; Redis earns its place as the
+  shared backend a second replica would point at (horizontal scale = available, not required).
+- **Step 5 — README overhaul for the release.** The owner's four screenshots kept **byte-
+  identical and exactly placed** (verified with `git diff` against their commit): the **top
+  hero is the V4 Global Terminal**; the **three below the Golden Rule are the V1 California
+  demo** (confirmed with the owner) — each cluster now carries a caption attributing it
+  correctly, with the V1 caption stating "California only … does not represent worldwide
+  capability". Added a "The V4 Global Terminal" section, planet-scale results in Performance
+  & Scale, the real Docker stack in Quick Start, and elevated the **uncalibrated-models
+  caveat** to a prominent callout in Project status.
+- **Step 6 — demo script for both systems.** `docs/demo_video_script.md` rewritten as two
+  explicitly-titled segments (Part 1 = V4 Global Terminal; Part 2 = V1 California Case Study,
+  with a persistent on-screen "V1 · California" label) so a viewer can never confuse them.
+- **Step 7 — tagged `v4.0.0`** with release notes summarizing Sessions 30–40.
+
+**What Worked**:
+- **Driving the real loop, not a re-implementation.** The stress test calls the production
+  `SharedComputeLoop.run_cycle()`; the only concession to a controlled offline run was
+  stubbing *ingestion* (network) and injecting activity directly — every stage *under* it
+  (screening, tiering, real Monte Carlo T1, real board T2) is the deployed code path. That
+  is why the "T2 is the bottleneck" finding is trustworthy: it fell out of the real tiers.
+- **The confusion had a real root cause, and a one-line bug hid inside it.** Grepping the
+  twin registry to write honest naming copy surfaced the `TWIN_ID="liguria"` 404 — the
+  California/Liguria inconsistency wasn't cosmetic, it was breaking the V2 dashboard.
+- **Path (A) was the honest call.** A clearly-labeled legacy demo ships; a half-wired
+  unification would have destabilized the release for no user-visible gain this session.
+- **End-to-end Docker validation caught nothing broken** — the stack came up healthy first
+  try and served both a V1 region list and a live V4 tile response, which is the evidence the
+  release needed.
+
+**What Didn't Work** (or deliberately deferred):
+- **Path (B) unification is real, deferred work.** A user still cannot request a full
+  SHAP/agent-board deep report for an *arbitrary* global cell on demand — only the Global
+  Terminal's `RegionBriefPanel` brief on cells real activity promoted to T1/T2. Closing that
+  gap means re-pointing the V1 ML pipeline at the V4 hazard models/state (or folding its
+  capability into the panel) — a genuine ML/architecture effort, out of scope for a release.
+- **Windows console mojibake + background-load contamination.** First stress runs printed
+  `—`/`×` as `�` (cp1252) and were 2–3× slower while the `graphify` background rebuild ate
+  cores; fixed by going ASCII in printed strings and re-running on a quiet machine. The
+  absolute latencies are single-run dev-laptop numbers, framed as such — the *shape* (flat
+  latency, bounded memory, T2-limited) is the robust result.
+- **Redis is provisioned but not yet load-bearing on the default API path** — the FastAPI
+  startup builds in-memory stores/brokers and does not consult `VECTIS_STATE_BACKEND` /
+  `VECTIS_BROKER`. Documented honestly rather than papered over; wiring the app startup
+  through the Redis seams is a clean follow-up for a true multi-node deployment.
+- **`graphify` remained deliberately out of scope** (gitignored `graphify-out/`, per
+  CLAUDE.md); the background rebuild hook fires on each commit and is ignored.
+
+**Next Steps**: **VECTIS V4 is released (`v4.0.0`) — there is no live next step inside the
+V4 arc.** The open post-V4 frontier (README "Beyond V4"): reinforcement learning for
+*suggested actions*; multi-twin cross-domain interaction (Climate × Finance); and promoting
+the Redis/distributed seams to real Ray/Dask clusters for horizontal scale. The one piece of
+**named deferred work from this session** is **path (B): genuine V1/V4 unification** — let a
+user pull a full SHAP/agent-board deep report for any real global cell, which requires
+re-pointing (or replacing) the California-bound V1 logistic with the V4 hazard models. Until
+then the two systems stay honestly separate, which is the shippable state.
 
 ---
 
