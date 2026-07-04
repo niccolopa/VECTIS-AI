@@ -1,103 +1,138 @@
-# VECTIS V2 — 2-Minute Showcase Video Script
+# VECTIS — Recorded Demo Script (V4 release)
 
-A shot-by-shot storyboard for recording a ~2:00 showcase. Goal: in two minutes a
-viewer understands that VECTIS is a **real-time probabilistic decision-intelligence
-platform** with serious engineering underneath (Monte Carlo, Bayesian inference, a
-Math Firewall) and a state-of-the-art tactical command interface.
+A shot-by-shot storyboard for a recorded showcase. VECTIS ships **two architecturally
+distinct** analysis systems in one console, and the single most important job of this
+demo is to **never let a viewer confuse them**:
+
+1. **Part 1 — the V4 Global Terminal.** The flagship: a **planet-scale**, live, tiered
+   system over a worldwide H3 grid. *This is what VECTIS is now.*
+2. **Part 2 — the V1 legacy demo (California Case Study).** The **origin**: a reactive
+   pipeline on a **fixed California sample**. Shown second, labeled loudly as legacy and
+   California-only, so its screenshots are never mistaken for global capability.
+
+Record them as two clearly-titled segments with an on-screen label in each. If you only
+have time for one, record **Part 1** — it is the real system.
+
+> **Honesty caveat to keep on screen / in narration once:** VECTIS's *scale and machinery*
+> are real; its *hazard numbers are not yet calibrated* against real historical labels —
+> every deployed coefficient is an honestly-marked illustrative prior
+> (`docs/calibration_report.md`). Say this out loud; do not imply validated forecasts.
 
 **Recording setup**
-- Dark terminal, large monospace font (the green-on-black tactical look).
-- Browser at 1920×1080, OS dark mode, no bookmarks bar.
-- Two prep terminals running before you hit record:
-  - `make api` (backend on :8000)
-  - `cd frontend && npm run dev` (UI on :5173)
-- Have a third terminal ready for the live commands below.
+- Browser at 1920×1080, OS dark mode, no bookmarks bar; dark terminal, large monospace.
+- Prep terminals before recording: `cd backend && make api` (:8000) and
+  `cd frontend && npm run dev` (:5173). Keep a third terminal for live commands.
+- On-screen title cards: **"PART 1 — V4 GLOBAL TERMINAL (worldwide, live)"** and
+  **"PART 2 — V1 LEGACY DEMO (California case study)"**.
 
 ---
 
-## Beat sheet (total ≈ 2:00)
+## PART 1 — The V4 Global Terminal (≈ 2:00)
 
-### 0:00 – 0:15 · Cold open — the engine, in the terminal
-**On screen:** full-screen terminal. Run:
+**Title card:** `V4 GLOBAL TERMINAL — the planet-scale system`
+
+### 0:00 – 0:20 · The world, live
+**On screen:** browser → `http://localhost:5173/terminal`. The `WorldRiskMap` fills the
+screen: an H3 choropleth of per-hazard risk across **every continent**.
+**Action:** slowly pan/zoom the map — Americas, Europe/Africa, Asia, Oceania — showing
+cells recolor as the viewport resolves.
+**Narration:**
+> "This is the VECTIS Global Terminal. Not one region — the whole planet, on a global grid,
+> scored live from real feeds: NASA FIRMS fire, USGS quakes, GDACS multi-hazard, Open-Meteo."
+
+### 0:20 – 0:45 · The event tape + tiering, explained
+**On screen:** the `GlobalEventTicker` tape scrolling worldwide detections.
+**Narration:**
+> "Every active cell gets a cheap screening score every tick. Only cells that genuinely
+> heat up get promoted to expensive deep analysis — Monte Carlo, then an AI board. That
+> tiering is what makes a *planet* computationally affordable: compute follows real
+> events and where operators are actually looking, never viewer-count times grid-size."
+
+### 0:45 – 1:15 · Drill-down that is honest by construction
+**On screen:** click a **low-activity** cell → `RegionBriefPanel` shows flat screening bars
++ a **"screening estimate only"** badge. Then click a **promoted (hot)** cell → full
+**p05/p50/p95** whiskers, the Bayesian posterior, and the analyst brief.
+**Narration:**
+> "The drill-down never bluffs. An un-analyzed cell says so — screening estimate only. A
+> promoted cell shows the full distribution and a narrated brief. The difference is
+> behavioral, not a label."
+
+### 1:15 – 1:35 · Watchlist + playback (memory)
+**On screen:** pin a cell to the `WatchlistPanel`; then toggle **playback** — the amber
+inset ring + timestamped banner + scrub bar make it unmistakably *not live*.
+**Narration:**
+> "Pin the cells you care about and they get priority within the budget. And it has a
+> memory: scrub back through a cell's risk-and-belief history — always amber, never
+> mistaken for live, one click back to now."
+
+### 1:35 – 2:00 · Scale + the honest bottleneck
+**On screen:** cut to a terminal. Run:
 ```bash
-python -m vectis.scripts.demo_v2
+make global-stress
 ```
-**Action:** let the tactical console output stream — twin init, scenarios,
-Bayesian update, the risk verdict, the AI brief.
+**Action:** hold on the results table and the FINDING line.
 **Narration:**
-> "This is VECTIS. It doesn't guess a single number — it simulates thousands of
-> possible futures and tells you how likely each one is."
+> "And it's honestly benchmarked. Forty thousand cells going critical at once: cycle
+> latency and memory stay flat, the hard budgets never break, and it tells you the truth —
+> the AI-board narration budget is the tightest bottleneck. It degrades into a deeper
+> queue, never a melted cycle."
+**End of Part 1 card:** `Global Terminal — worldwide · live · tiered · bounded`.
 
-### 0:15 – 0:35 · The scale flex
-**On screen:** same terminal. Run:
+---
+
+## PART 2 — The V1 Legacy Demo: California Case Study (≈ 1:30)
+
+**Title card:** `V1 LEGACY DEMO — California only. NOT the global system.`
+Keep a persistent corner label reading **"V1 · California case study"** for this whole
+segment.
+
+### 0:00 – 0:15 · Frame it as history, up front
+**On screen:** the sidebar — point at the **"V1 Legacy Demo"** section and its amber
+in-app banner on the **California Case Study** page (`/risk`).
+**Narration:**
+> "This is where VECTIS started: a reactive pipeline from Session 1. It is a fixed
+> **California** demo — a separate, historical system, **not** part of the global terminal.
+> The app labels it as such on every screen."
+
+### 0:15 – 0:35 · The reactive pipeline in the terminal
+**On screen:** a terminal. Run:
 ```bash
-make stress
+python -m vectis.scripts.demo   # V1: one reactive Decision Report (make demo)
 ```
-**Action:** scroll to the VERDICT block.
 **Narration:**
-> "The engine is vectorized NumPy. One million scenarios — three million trajectory
-> evaluations — in under a second, fully reproducible. And it's honest: it measured
-> that multiprocessing was *slower* here, and says so."
-**Hold on:** the `~0.8 s / 1,000,000 scenarios` and the cache `~6000× faster` lines.
+> "It runs a six-agent board — data discovery, analysis, ML research, simulation, report,
+> and a mandatory critic — over a logistic-regression model trained on a 240-cell
+> California sample. Offline, no API key."
 
-### 0:35 – 0:55 · Enter the dashboard
-**On screen:** cut to the browser → `http://localhost:5173`.
-**Action:** click **Decision Intelligence** in the sidebar (the activity icon).
-Let the dark, tactical dashboard load.
+### 0:35 – 1:00 · The SHAP-driven report
+**On screen:** browser → `/risk`, pick **California, USA**, **Run analysis**, then open the
+report (`/reports` → a row). Show the risk score, the SHAP-attributed drivers, and the
+critic verdict.
 **Narration:**
-> "Same engine, now as a command center. This is the Liguria wildfire digital twin —
-> live."
-**Action:** point cursor at the live risk score + "● live" badge in the header.
+> "The output is a Decision Intelligence Report: a risk score, the model-attributed drivers
+> via SHAP, and an AI critique. Every screenshot here is **California** — the model was
+> never trained anywhere else."
 
-### 0:55 – 1:15 · Scenario Explorer
-**On screen:** the **Scenario Explorer** card.
-**Action:** slowly hover each branch — Baseline, Hotter & Drier, Extreme Wind —
-showing the box-and-whisker spreads.
+### 1:00 – 1:30 · Draw the line explicitly, and close
+**On screen:** split-screen or quick cut between `/risk` (California grid) and `/terminal`
+(the world).
 **Narration:**
-> "Every branch is a full distribution, not a point. The whisker is the 5th-to-95th
-> percentile, the line is the median, the dot is the mean. This is uncertainty you
-> can actually see."
-
-### 1:15 – 1:35 · What-If Simulator (the interactive moment)
-**On screen:** the **What-If Simulator** card on the right.
-**Action:** drag **Temperature anomaly** to **+5 °C**, then click **Run simulation**.
-**Narration:**
-> "Ask a question. Slide the temperature to plus five degrees and re-run —
-> synchronously, served from cache. Risk jumps, and you see exactly how much."
-**Hold on:** the "+X.X vs current" delta badge.
-
-### 1:35 – 1:50 · The AI brief (Future Worlds)
-**On screen:** scroll to the **AI Intelligence Brief**.
-**Action:** scroll through bottom-line → analyst → optimist/pessimist debate →
-red-team critique.
-**Narration:**
-> "Then an AI board narrates it — analyst, a debate, and a red team that attacks the
-> prediction. But every number comes from the math engine. The AI writes the words,
-> never the numbers. We call it the Math Firewall."
-
-### 1:50 – 2:00 · Live update + close
-**On screen:** split or cut to the third terminal. Fire a real observation:
-```bash
-curl -s -X POST http://localhost:8000/api/v1/stream/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"kind":"weather_alert","source":"demo","region":"california","variable":"temp_anomaly_c","value":4.0,"severity":"critical"}'
-```
-**Action:** cut back to the dashboard — the **Probability Timeline** ticks with a new
-point, no refresh.
-**Narration:**
-> "And it's real-time. A new observation arrives, beliefs update, the timeline moves.
-> VECTIS — probabilistic decision intelligence, open source."
+> "So: two systems. The **Global Terminal** is the planet, live, region-agnostic. The
+> **California Case Study** is the original reactive demo, bound to one training sample.
+> They share a look, not a scope — and VECTIS says which is which, everywhere."
 **End card:** repo URL + `github.com/<you>/vectis`.
 
 ---
 
-## One-take fallback (if curl/event timing is fiddly)
-
-Skip the live `curl` beat; instead end on the What-If + AI brief and the tagline.
-The timeline still shows the seeded current-state point.
+## The Math Firewall (mention in whichever part covers the board)
+Both systems narrate with an AI board, and both obey the **Math Firewall**: the LLM writes
+prose, never numbers. Every figure on any report is copied from the deterministic engine.
 
 ## Exact assets referenced
-- Terminal demo: `python -m vectis.scripts.demo_v2` (alias `make demo-v2`)
-- Stress test: `make stress` (`backend/scripts/stress_test.py`)
-- Dashboard route: `/dashboard` → sidebar **Decision Intelligence**
-- Live ingest: `POST /api/v1/stream/ingest` → WebSocket push → Probability Timeline
+- **V4 Global Terminal:** route `/terminal`; stress `make global-stress`
+  (`backend/scripts/global_stress_test.py`); tiles `GET /api/v1/tiles`.
+- **V1 legacy demo:** `python -m vectis.scripts.demo` (alias `make demo`); routes `/risk`
+  (California Case Study) and `/reports` (Case Study Reports), both under the sidebar's
+  **V1 Legacy Demo** section.
+- **V2 dashboard (optional B-roll):** route `/dashboard`; `python -m vectis.scripts.demo_v2`
+  (`make demo-v2`); live ingest `POST /api/v1/stream/ingest` → Probability Timeline.
