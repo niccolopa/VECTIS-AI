@@ -11,7 +11,7 @@ them with an auditable AI board whose numbers are produced entirely by determini
 [![CI](https://github.com/your-org/vectis/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](backend/pyproject.toml)
-[![Backend tests](https://img.shields.io/badge/backend%20tests-107%20passing-brightgreen.svg)](backend/tests)
+[![Backend tests](https://img.shields.io/badge/backend%20tests-314%20passing-brightgreen.svg)](backend/tests)
 [![Scale](https://img.shields.io/badge/Monte%20Carlo-1M%20scenarios%20in%20~0.8s-00ffd5.svg)](docs/v2_simulation_engine.md)
 
 </div>
@@ -127,10 +127,10 @@ Dashboard** — with mermaid flow and sequence diagrams and a component-to-code 
 | Layer | Stack |
 |---|---|
 | Simulation | **NumPy · SciPy** (vectorized Monte Carlo, Bayesian inference) |
-| Backend | Python 3.11, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, structlog |
+| Backend | Python 3.11, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, **h3** (global grid), structlog |
 | Agents | LangGraph board + custom DAG (two engines); Anthropic Claude or deterministic mock |
 | ML (V1) | scikit-learn, XGBoost, **SHAP** |
-| Frontend | React 18, TypeScript, Vite, Tailwind, TanStack Query, **Recharts**, MapLibre GL |
+| Frontend | React 18, TypeScript, Vite, Tailwind, TanStack Query, **Recharts**, MapLibre GL, **h3-js** |
 | Infra | Docker Compose, GitHub Actions CI, ruff + mypy + pytest |
 
 ---
@@ -183,6 +183,13 @@ make up          # db (PostGIS) + backend + frontend
 > Use a real LLM by setting `VECTIS_LLM_PROVIDER=claude` and `VECTIS_ANTHROPIC_API_KEY`
 > (`pip install -e '.[llm]'`). The LLM only *narrates* already-computed numbers.
 
+> **Persistence & history (V4):** the durable belief-history + playback layer needs
+> **Postgres + PostGIS**. Docker (`make up`) applies the Alembic migrations and seeds
+> automatically; for a **local** database, run `make migrate` (`alembic upgrade head`,
+> migrations `0001`→`0003`) once against your `VECTIS_DATABASE_URL`. The offline demos
+> (Option A) and the live streaming dashboard (Option B) run **fully in-memory** and need
+> no database.
+
 ---
 
 ## The V2 Dashboard
@@ -201,24 +208,20 @@ A maintainer's 2-minute showcase script: [`docs/demo_video_script.md`](docs/demo
 
 ---
 
-## Roadmap → V4
+## Beyond V4 — the open frontier
 
-V3 closes the real-time loop: a continuous pipeline from live connectors through Kalman
-state estimation and a continuous Bayesian belief to the Monte Carlo engine and analyst
-board, all streaming (`demo_v3_live`). V4 turns it into a **multi-domain intelligence
-network** running against real feeds at scale:
+**V4 (Sessions 24–39) is complete** — see [Project status](#project-status) below. The
+platform now runs a global H3 grid against live multi-source feeds, with demand-driven
+tiered compute, multi-hazard models, and a durable queryable history: the original V4
+goals of *real feeds at scale*, *Redis-ready transport*, and *persistence & history* are
+delivered. The longer-horizon frontier it is built toward, still open past V4:
 
-- **Real feeds, real transport.** Wire the connectors to live NASA **FIRMS** + ERA5/
-  Copernicus endpoints (API keys), and promote the in-process broker to **Redis Streams
-  / Kafka** so many cells stream concurrently.
-- **Persistence & history.** ORM-backed cell-state + belief-trajectory storage, so risk
-  history is queryable and auditable across restarts.
 - **Reinforcement learning for suggested actions.** Move beyond *describing* risk to
   *recommending* interventions (where to pre-position resources) and learning from outcomes.
 - **Multi-twin interaction.** Cells/twins that influence each other across domains —
   e.g. **Climate × Finance** (wildfire risk → insurance/commodity exposure).
-- **Horizontal scale.** Promote the distributed stub to real **Ray/Dask** clusters and
-  move state/broadcaster/cache to Redis for global coverage.
+- **Horizontal scale.** Promote the Redis-ready state/broker/cache seams and the
+  distributed stub to real **Ray/Dask** clusters for full global concurrency.
 
 Full engineering history and next steps: **[`HANDOFF.md`](HANDOFF.md)**.
 
@@ -231,8 +234,20 @@ Full engineering history and next steps: **[`HANDOFF.md`](HANDOFF.md)**.
   streaming, digital twin, LangGraph board, 1M-scenario scale, and the dashboard.
 - **V3 (Sessions 16–23):** complete — global event schema, resilient connectors,
   broker/producer/consumer streaming, Kalman state estimation, continuous Bayesian
-  belief, and the `ContinuousPipeline` that unites them into one live stream
-  (`demo_v3_live`). **140 backend tests green.**
+  belief, and the `ContinuousPipeline` that unites them into one live stream (`demo_v3_live`).
+- **V4 (Sessions 24–39):** complete — global H3 grid with sparse state; live multi-source
+  ingestion (weather · FIRMS · USGS · GDACS); **demand-driven tiered compute** (cheap
+  global Tier-0 screening → budgeted Tier-1 Monte Carlo deep analysis → Tier-2 board
+  narration, one shared compute loop bounded by attention + real events, not viewer
+  count); multi-hazard models (wildfire · flood · earthquake · cyclone); a tile server +
+  `/terminal` global console; and a durable persistence layer with queryable belief
+  history, bounded retention/roll-up, and scrubbable playback. **314 backend tests green**
+  (+1 network-gated skip). *Caveat:* the calibration/validation pipeline is built and
+  tested end-to-end but has never run against real historical labels in this environment —
+  deployed hazard coefficients remain honestly-marked illustrative priors.
+
+Closing session: **Session 40** — final stress test & deployment write-up
+(see [`HANDOFF.md`](HANDOFF.md)).
 
 ## Contributing
 
