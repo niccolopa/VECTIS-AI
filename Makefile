@@ -44,6 +44,10 @@ stress: ## Run the 1,000,000-scenario Monte Carlo stress test (serial vs paralle
 storm: ## Run the global-storm tiering stress test (thousands of cells crossing at once, honest numbers)
 	cd $(BACKEND) && pytest -m slow tests/realtime/test_tiering_storm.py -s
 
+.PHONY: global-stress
+global-stress: ## Run the V4 planet-scale stress test on the real shared compute loop (increasing intensity, honest numbers)
+	cd $(BACKEND) && $(PY) scripts/global_stress_test.py
+
 .PHONY: train
 train: ## Train + evaluate models on the sample and write the model card
 	cd $(BACKEND) && $(PY) -m vectis.scripts.train
