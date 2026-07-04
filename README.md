@@ -20,6 +20,10 @@ them with an auditable AI board whose numbers are produced entirely by determini
 
 <img width="1918" height="906" alt="image" src="https://github.com/user-attachments/assets/36b80817-4367-4a6e-95da-5ad4f5ef74e8" />
 
+<div align="center"><sub><b>The V4 Global Terminal</b> (<code>/terminal</code>) — the planet-scale system: a worldwide
+H3 grid painted with real per-hazard screening scores across every continent, with tiered deep
+analysis on cells that real activity promotes. This is the global system, not the California demo.</sub></div>
+
 
 
 ## What VECTIS is
@@ -94,6 +98,12 @@ explicit banner so the two are never mistaken for one another.
 <img width="1912" height="903" alt="image" src="https://github.com/user-attachments/assets/571ff80c-2364-4fbd-89e6-0721181a7aec" />
 <img width="1918" height="907" alt="image" src="https://github.com/user-attachments/assets/50b11752-f074-4811-ab28-09ff9449b1bc" />
 
+<div align="center"><sub><b>The V1 legacy demo — California Case Study</b> (Risk Intelligence → Reports).
+All three views above are the original Session-1 reactive pipeline: a logistic-regression model
+trained on a fixed 240-cell <b>California</b> sample, its SHAP-attributed drivers, and the 6-agent
+decision board. <b>This is California only</b> — it is the <a href="#two-analysis-systems-in-one-console--dont-confuse-them">V1 demo, not the
+global V4 Terminal</a>, and does not represent worldwide capability.</sub></div>
+
 
 
 ---
@@ -121,6 +131,17 @@ We measured it and documented it rather than assuming a speedup.
 Reproducibility is guaranteed per `(seed, n_workers)` via
 `numpy.random.SeedSequence.spawn`: **serial, multiprocessing, and the distributed stub
 all produce byte-identical results**. Details: [`docs/v2_simulation_engine.md`](docs/v2_simulation_engine.md) §10.
+
+**At planet scale (V4).** The engine above is one cell; the V4 stress test (`make
+global-stress`) drives the *real* shared compute loop — screen → tier → Monte Carlo T1 →
+board T2 — under synthetic worldwide activity at increasing intensity (up to **40,000
+cells crossing the threshold at once** over a 40k-cell global hot set). Measured on the
+same 12-core machine, production budgets: full sweep + first deep-analysis batch **< 1.5
+s**, memory **~32–38 MB** for 40k active cells, and the hard per-cycle budgets (64 Monte
+Carlo forecasts, 5 board narrations) **never breached** — a storm degrades into a deeper
+queue, never a melted cycle. The **T2 board/LLM narration budget is the tightest
+bottleneck** (it drains ~13× slower than T1). Honest ceilings, framed against the
+hardware: **[`docs/scale_limits.md`](docs/scale_limits.md)**.
 
 ---
 
@@ -200,12 +221,17 @@ curl -s -X POST localhost:8000/api/v1/stream/ingest -H "Content-Type: applicatio
   -d '{"kind":"weather_alert","source":"demo","region":"california","variable":"temp_anomaly_c","value":4.0,"severity":"critical"}'
 ```
 
-### Option C — Docker (full stack)
+### Option C — Docker (the lean single-node stack)
 
 ```bash
 cp .env.example .env
-make up          # db (PostGIS) + backend + frontend
+make up          # PostGIS + Redis + Sluice ingestion gateway + backend + frontend
 ```
+
+This is the whole production topology on one box (validated end-to-end). Redis backs the
+shared state/broker seams and the Sluice is the optional feed gateway; horizontal scale
+(N backend replicas sharing this same Redis + PostGIS) is **available, not required**.
+Full write-up: **[`docs/deployment.md`](docs/deployment.md)**.
 
 > Use a real LLM by setting `VECTIS_LLM_PROVIDER=claude` and `VECTIS_ANTHROPIC_API_KEY`
 > (`pip install -e '.[llm]'`). The LLM only *narrates* already-computed numbers.
@@ -235,13 +261,46 @@ A maintainer's 2-minute showcase script: [`docs/demo_video_script.md`](docs/demo
 
 ---
 
+## The V4 Global Terminal
+
+The flagship of the V4 arc (Sessions 30–40) is the **Global Terminal** at `/terminal` (the
+hero screenshot at the top) — the **planet-scale** system, distinct from the V1 California
+demo:
+
+- **Worldwide H3 grid.** Real per-hazard screening scores across every continent, painted
+  from a viewport-scoped tile server that rolls fine cells up to coarse by max-per-hazard.
+- **Demand-driven tiered compute.** One shared loop per tick: cheap **Tier-0** screening
+  over the whole active set → budgeted **Tier-1** Monte Carlo + Bayesian deep analysis →
+  **Tier-2** board narration — bounded by *attention + real events*, never viewer count ×
+  grid size (50 viewers and 5 viewers do identical work).
+- **Multi-hazard.** Wildfire · flood · earthquake · cyclone, all flowing through the *same*
+  Monte Carlo engine, Bayesian updater, and analyst board behind a shared `HazardModel` seam.
+- **Drill-down that is honest by construction.** The `RegionBriefPanel` shows a flat
+  "screening estimate only" for un-promoted (T0) cells and full p05/p50/p95 whiskers +
+  posterior + analyst brief only for cells real activity promoted to T1/T2.
+- **Memory + history.** A durable, queryable belief-trajectory store (PostGIS) under the
+  hot tier, bounded retention/roll-up, and a scrubbable **playback** mode that is
+  unmistakably amber-not-live.
+
+Scale ceilings: **[`docs/scale_limits.md`](docs/scale_limits.md)**. Deployment:
+**[`docs/deployment.md`](docs/deployment.md)**.
+
+> **Not to be confused with the V1 California Case Study** (Risk Intelligence → Reports in
+> the sidebar's *V1 Legacy Demo* section — the three lower screenshots). That is the
+> original reactive pipeline on a fixed California sample; see
+> [Two analysis systems](#two-analysis-systems-in-one-console--dont-confuse-them).
+
+---
+
 ## Beyond V4 — the open frontier
 
-**V4 (Sessions 24–39) is complete** — see [Project status](#project-status) below. The
-platform now runs a global H3 grid against live multi-source feeds, with demand-driven
-tiered compute, multi-hazard models, and a durable queryable history: the original V4
-goals of *real feeds at scale*, *Redis-ready transport*, and *persistence & history* are
-delivered. The longer-horizon frontier it is built toward, still open past V4:
+**V4 (Sessions 24–40) is complete and tagged `v4.0.0`** — see
+[Project status](#project-status) below. The platform now runs a global H3 grid against
+live multi-source feeds, with demand-driven tiered compute, multi-hazard models, and a
+durable queryable history: the original V4 goals of *real feeds at scale*, *Redis-ready
+transport*, and *persistence & history* are delivered, stress-tested at planet scale, and
+shipped as a validated single-node stack. The longer-horizon frontier it is built toward,
+still open past V4:
 
 - **Reinforcement learning for suggested actions.** Move beyond *describing* risk to
   *recommending* interventions (where to pre-position resources) and learning from outcomes.
@@ -262,19 +321,27 @@ Full engineering history and next steps: **[`HANDOFF.md`](HANDOFF.md)**.
 - **V3 (Sessions 16–23):** complete — global event schema, resilient connectors,
   broker/producer/consumer streaming, Kalman state estimation, continuous Bayesian
   belief, and the `ContinuousPipeline` that unites them into one live stream (`demo_v3_live`).
-- **V4 (Sessions 24–39):** complete — global H3 grid with sparse state; live multi-source
-  ingestion (weather · FIRMS · USGS · GDACS); **demand-driven tiered compute** (cheap
-  global Tier-0 screening → budgeted Tier-1 Monte Carlo deep analysis → Tier-2 board
-  narration, one shared compute loop bounded by attention + real events, not viewer
-  count); multi-hazard models (wildfire · flood · earthquake · cyclone); a tile server +
-  `/terminal` global console; and a durable persistence layer with queryable belief
-  history, bounded retention/roll-up, and scrubbable playback. **314 backend tests green**
-  (+1 network-gated skip). *Caveat:* the calibration/validation pipeline is built and
-  tested end-to-end but has never run against real historical labels in this environment —
-  deployed hazard coefficients remain honestly-marked illustrative priors.
+- **V4 (Sessions 24–40):** **complete — tagged `v4.0.0`.** Global H3 grid with sparse
+  state; live multi-source ingestion (weather · FIRMS · USGS · GDACS); **demand-driven
+  tiered compute** (cheap global Tier-0 screening → budgeted Tier-1 Monte Carlo deep
+  analysis → Tier-2 board narration, one shared compute loop bounded by attention + real
+  events, not viewer count); multi-hazard models (wildfire · flood · earthquake · cyclone);
+  a tile server + `/terminal` global console; a durable persistence layer with queryable
+  belief history, bounded retention/roll-up, and scrubbable playback; a **planet-scale
+  stress test** (`make global-stress`) with honest [scale ceilings](docs/scale_limits.md);
+  and a **validated single-node deployment** stack ([deployment](docs/deployment.md)).
+  Session 40 also fenced the **V1 California Case Study** off from the global system with
+  clear in-app + README labeling. **314 backend tests green** (+1 network-gated skip),
+  frontend 24 tests green.
+  > ⚠️ **Uncalibrated-models caveat (still true, kept prominent):** no hazard model in this
+  > repo has ever been fitted to real historical labels. The calibration/validation
+  > pipeline is built and tested end-to-end but never ran against real fire history in this
+  > environment, so **every deployed coefficient is an honestly-marked illustrative prior.**
+  > VECTIS's scale and machinery are real; its hazard *numbers* are not yet validated
+  > against ground truth. See [`docs/calibration_report.md`](docs/calibration_report.md).
 
-Closing session: **Session 40** — final stress test & deployment write-up
-(see [`HANDOFF.md`](HANDOFF.md)).
+**Closing session: Session 40 — COMPLETE. This is the V4 release.** Full engineering
+history: **[`HANDOFF.md`](HANDOFF.md)**.
 
 ## Contributing
 
