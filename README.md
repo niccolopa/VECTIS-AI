@@ -70,6 +70,12 @@ LLM and a bundled dataset — **no API keys required**.
 > layer. LLMs re-enter only as *Analyst* agents that *read* the numbers. The
 > "LLM-narrates-not-decides" discipline is enforced at the type boundary.
 
+<img width="1918" height="905" alt="image" src="https://github.com/user-attachments/assets/63445b8a-f8c1-40b9-9b22-7a0c8040b7d7" />
+<img width="1912" height="903" alt="image" src="https://github.com/user-attachments/assets/571ff80c-2364-4fbd-89e6-0721181a7aec" />
+<img width="1918" height="907" alt="image" src="https://github.com/user-attachments/assets/50b11752-f074-4811-ab28-09ff9449b1bc" />
+
+
+
 ---
 
 ## Performance & Scale
