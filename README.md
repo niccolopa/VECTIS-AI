@@ -18,7 +18,7 @@ them with an auditable AI board whose numbers are produced entirely by determini
 
 ---
 
-<img width="1918" height="908" alt="image" src="https://github.com/user-attachments/assets/e175dd4d-37da-47e5-9ed6-00d8d0d60473" />
+<img width="1918" height="906" alt="image" src="https://github.com/user-attachments/assets/36b80817-4367-4a6e-95da-5ad4f5ef74e8" />
 
 
 
