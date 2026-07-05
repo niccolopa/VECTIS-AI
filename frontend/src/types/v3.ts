@@ -15,6 +15,10 @@ export interface V3Event {
   variable: string;
   value: number;
   observed_at: string; // ISO
+  /** Whether this event was genuinely fetched live or is a synthetic fallback
+   * (Session 41). Optional so older frames/fixtures still type-check; absent is
+   * treated as unlabeled, not asserted live. */
+  data_source?: import("@/types/connectors").DataSource;
 }
 
 /** A worldwide active-fire detection (FIRMS) for the global map. */

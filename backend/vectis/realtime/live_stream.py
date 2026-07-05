@@ -379,6 +379,11 @@ class GlobalIngestionBroadcaster:
         self._subscribers: set[asyncio.Queue[list[dict[str, Any]]]] = set()
         self._task: asyncio.Task[None] | None = None
 
+    @property
+    def connectors(self) -> list[BaseAPIConnector]:
+        """The active planetary feeds — read-only, for per-connector live/synthetic status."""
+        return self._manager.connectors
+
     async def start(self) -> None:
         if self._task is None:
             self._task = asyncio.create_task(self._run())

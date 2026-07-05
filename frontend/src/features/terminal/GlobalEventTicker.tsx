@@ -44,6 +44,17 @@ export function GlobalEventTicker({ events, max = 50 }: { events: V3Event[]; max
               <span style={{ color: SOURCE_COLOR[e.source] ?? "#8b9196" }}>
                 {e.source.toUpperCase()}
               </span>
+              {/* Per-event honesty: a synthetic-fallback detection is flagged inline so the
+                  tape is never mistaken for an all-live feed. */}
+              {e.data_source === "synthetic_fallback" && (
+                <span
+                  data-testid="ticker-synthetic"
+                  title="synthetic fallback — not a live detection"
+                  className="rounded-sm border border-risk-high/60 px-1 text-[9px] font-semibold uppercase text-risk-high"
+                >
+                  syn
+                </span>
+              )}
               <span className="text-muted">{e.variable}</span>
               <span className="tabular-nums text-text">{e.value}</span>
             </span>

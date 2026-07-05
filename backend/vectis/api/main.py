@@ -116,6 +116,7 @@ def create_app() -> FastAPI:
     from vectis.api.routers import (
         analyses,
         cells,
+        connectors,
         dashboard,
         health,
         history,
@@ -140,6 +141,7 @@ def create_app() -> FastAPI:
     app.include_router(cells.router)
     app.include_router(watchlist.router)
     app.include_router(history.router)
+    app.include_router(connectors.router)
     return app
 
 

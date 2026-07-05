@@ -17,6 +17,7 @@ import { Badge, Card, CardHeader } from "@/components/ui";
 import { AiIntelligenceBrief } from "@/features/dashboard/AiIntelligenceBrief";
 import { ScenarioExplorer } from "@/features/dashboard/ScenarioExplorer";
 import { ProbabilityBars } from "@/features/realtime/ProbabilityBars";
+import { useConnectorStatus } from "@/features/terminal/ConnectorStatusStrip";
 import { HAZARD_META } from "@/features/terminal/HazardToggle";
 import { fetchCellBrief } from "@/services/cells";
 import { qk } from "@/services/queryKeys";
@@ -59,6 +60,37 @@ function ScreeningBars({ screening }: { screening: Record<string, number> }) {
         );
       })}
     </div>
+  );
+}
+
+/** Label this brief's data provenance: for each feed the cell draws from, is it live or
+ * synthetic *right now*? So an analysis sourced from offline fallback is flagged as such
+ * at the point of analysis, not only on the map's badge cluster. */
+function SourceProvenance({ sources }: { sources: string[] }) {
+  const { data } = useConnectorStatus();
+  if (sources.length === 0) return null;
+  const byId = new Map((data?.connectors ?? []).map((c) => [c.source, c]));
+  return (
+    <span data-testid="brief-provenance" className="inline-flex flex-wrap items-center gap-1">
+      {sources.map((src) => {
+        const status = byId.get(src);
+        const synthetic = status?.data_source === "synthetic_fallback";
+        return (
+          <span
+            key={src}
+            className={synthetic ? "text-risk-high" : "text-muted"}
+            title={
+              status
+                ? `${src}: ${synthetic ? "synthetic fallback" : "live"}`
+                : `${src}: feed status unknown`
+            }
+          >
+            {src}
+            {status && (synthetic ? " (SYN)" : " (LIVE)")}
+          </span>
+        );
+      })}
+    </span>
   );
 }
 
@@ -191,11 +223,15 @@ export function RegionBriefPanel({
           }
         />
         {brief && (
-          <p className="mt-1 text-2xs tabular-nums text-muted-2">
-            {brief.lat.toFixed(3)}, {brief.lon.toFixed(3)}
-            {brief.state && ` · v${brief.state.version} · ${brief.state.sources.join(", ")}`}
-            {brief.source_cells > 1 &&
-              ` · aggregates ${brief.source_cells} native cells (max per hazard)`}
+          <p className="mt-1 flex flex-wrap items-center gap-1 text-2xs tabular-nums text-muted-2">
+            <span>
+              {brief.lat.toFixed(3)}, {brief.lon.toFixed(3)}
+              {brief.state && ` · v${brief.state.version} · `}
+            </span>
+            {brief.state && <SourceProvenance sources={brief.state.sources} />}
+            {brief.source_cells > 1 && (
+              <span> · aggregates {brief.source_cells} native cells (max per hazard)</span>
+            )}
           </p>
         )}
         {query.isLoading && <p className="mt-3 text-xs text-muted-2">Loading brief…</p>}

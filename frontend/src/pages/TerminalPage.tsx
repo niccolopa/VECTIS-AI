@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { WorldRiskMap } from "@/components/map/WorldRiskMap";
 import { Badge } from "@/components/ui";
+import { ConnectorBadges, SyntheticDemoBanner } from "@/features/terminal/ConnectorStatusStrip";
 import { GlobalEventTicker } from "@/features/terminal/GlobalEventTicker";
 import { HazardToggle } from "@/features/terminal/HazardToggle";
 import { PlaybackBar } from "@/features/terminal/PlaybackBar";
@@ -84,7 +85,9 @@ export function TerminalPage() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Top strip: identity + stream state + hazard toggles */}
+      {/* Unmistakable top-level state for the zero-credential fresh clone. */}
+      <SyntheticDemoBanner />
+      {/* Top strip: identity + per-feed live/synthetic status + stream state + toggles */}
       <div className="flex items-center gap-3 border-b border-border bg-surface-2 px-4 py-2">
         <div className="leading-tight">
           <div className="text-sm font-bold tracking-[0.18em] text-glow">GLOBAL TERMINAL</div>
@@ -93,6 +96,7 @@ export function TerminalPage() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-3">
+          <ConnectorBadges />
           <HazardToggle active={activeHazards} onChange={setActiveHazards} />
           {playback.active ? (
             <Badge tone="warning">◀ replay mode</Badge>

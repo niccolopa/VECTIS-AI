@@ -17,6 +17,20 @@ export const handlers = [
     HttpResponse.json({ ...reportFixture, id: String(params.id) }),
   ),
   http.post("/api/v1/analyses", () => HttpResponse.json(reportFixture, { status: 201 })),
+  // Default connector status: a mixed live state (banner absent). Tests that care
+  // about the all-synthetic banner or specific badges override this via server.use().
+  http.get("/api/v1/connectors", () =>
+    HttpResponse.json({
+      connectors: [
+        { source: "nasa_firms", label: "Fire", data_source: "synthetic_fallback" },
+        { source: "usgs_quake", label: "Quake", data_source: "live" },
+        { source: "gdacs", label: "Multi-hazard", data_source: "live" },
+        { source: "weather_api", label: "Weather", data_source: "live" },
+      ],
+      all_synthetic: false,
+      any_live: true,
+    }),
+  ),
   http.get("/api/v1/models/:region", () =>
     HttpResponse.json({
       model_name: "logistic_regression",
