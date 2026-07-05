@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+import numpy as np
+
 from vectis.agents.board.schemas import BoardInput, ScenarioView
 from vectis.agents.board.service import SimulationBoardService
 from vectis.core.logging import get_logger
@@ -222,6 +224,14 @@ class CellForecastRunner:
         scenario_risk = {o.scenario_id: o.risk.mean for o in run.outcomes}
         risk = posterior_mixture_risk(scenarios, scenario_risk)
         posterior = {s.id: s.prior for s in scenarios.scenarios}
+        # Closed-form driver attribution (Session 41): this cell's observed drivers
+        # (the overlaid `base`) vs the illustrative twin baseline, through the engine's
+        # own hazard coefficients — exact, computed only for this genuinely-promoted cell.
+        twin_baseline = {v.name: v.value for v in seam.twin_factory().variables}
+        drivers = engine.hazard.explain(
+            {v.name: np.array([v.value], dtype=float) for v in base.variables},
+            twin_baseline,
+        )
         result = ForecastResult(
             cell_id=state.cell_id,
             risk_score=risk,
@@ -229,6 +239,7 @@ class CellForecastRunner:
             risk_band=RiskBand.from_score(risk),
             posterior=posterior,
             run=run,
+            drivers=drivers,
         )
         dominant = max(scenarios.scenarios, key=lambda s: s.prior)
         board_input = BoardInput(

@@ -78,6 +78,16 @@ const T2_BRIEF: CellBrief = {
         },
       },
     ],
+    drivers: [
+      {
+        factor: "temp_anomaly_c", contribution: 1.65, direction: "increases",
+        input_value: 18, baseline_value: 15, caveat: "Illustrative, uncalibrated coefficients.",
+      },
+      {
+        factor: "wind_speed_kmh", contribution: -0.4, direction: "decreases",
+        input_value: 10, baseline_value: 30, caveat: "Illustrative, uncalibrated coefficients.",
+      },
+    ],
     report: {
       report_id: "RPT-1",
       classification: "OPERATIONAL",

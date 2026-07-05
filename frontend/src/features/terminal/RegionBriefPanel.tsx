@@ -20,7 +20,7 @@ import { ProbabilityBars } from "@/features/realtime/ProbabilityBars";
 import { HAZARD_META } from "@/features/terminal/HazardToggle";
 import { fetchCellBrief } from "@/services/cells";
 import { qk } from "@/services/queryKeys";
-import type { CellBrief } from "@/types/cells";
+import type { CellBrief, DriverBrief } from "@/types/cells";
 import type { Hazard } from "@/types/tiles";
 import type { RiskState, ScenarioProjection } from "@/types/v2";
 import { riskColor } from "@/utils/risk";
@@ -59,6 +59,66 @@ function ScreeningBars({ screening }: { screening: Record<string, number> }) {
         );
       })}
     </div>
+  );
+}
+
+/** Humanize a driver's factor key: `temp_anomaly_c` → `Temp anomaly c`. */
+function driverLabel(factor: string): string {
+  const s = factor.replace(/_/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** The "Why" — closed-form driver attribution for a genuinely promoted (T1/T2) cell.
+ * Replicates the V1 report's driver list: each factor's signed contribution, ranked by
+ * magnitude, honestly labeled as uncalibrated. Rendered ONLY inside the analysis block,
+ * so a T0 (screening-only) cell never reaches it. */
+function DriversWhy({ drivers }: { drivers: DriverBrief[] }) {
+  if (drivers.length === 0) return null;
+  const maxAbs = Math.max(...drivers.map((d) => Math.abs(d.contribution)), 1e-9);
+  return (
+    <Card>
+      <CardHeader
+        eyebrow="Why · driver attribution"
+        title="What is moving this cell's risk"
+      />
+      <p className="mt-1 text-2xs text-muted-2">{drivers[0].caveat}</p>
+      <div className="mt-3 space-y-2.5">
+        {drivers.map((d) => {
+          const up = d.direction === "increases";
+          const color = up ? "var(--color-risk-high, #ef4444)" : "#38bdf8";
+          const pct = (Math.abs(d.contribution) / maxAbs) * 100;
+          return (
+            <div key={d.factor}>
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <span className="text-muted">{driverLabel(d.factor)}</span>
+                <span className="tabular-nums" style={{ color }}>
+                  {up ? "▲ increases" : d.direction === "decreases" ? "▼ decreases" : "– neutral"}{" "}
+                  {d.contribution >= 0 ? "+" : ""}
+                  {d.contribution.toFixed(2)}
+                </span>
+              </div>
+              {/* Center-anchored signed bar: right = raises risk, left = lowers it. */}
+              <div className="flex h-1.5 w-full items-center">
+                <div className="flex h-full w-1/2 justify-end">
+                  {!up && (
+                    <div className="h-full rounded-l-full" style={{ width: `${pct}%`, background: color }} />
+                  )}
+                </div>
+                <div className="h-3 w-px bg-border-strong" />
+                <div className="flex h-full w-1/2 justify-start">
+                  {up && (
+                    <div className="h-full rounded-r-full" style={{ width: `${pct}%`, background: color }} />
+                  )}
+                </div>
+              </div>
+              <div className="mt-0.5 text-2xs tabular-nums text-muted-2">
+                observed {d.input_value.toFixed(2)} · baseline {d.baseline_value.toFixed(2)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 
@@ -170,6 +230,7 @@ export function RegionBriefPanel({
       {brief && brief.analysis && (
         <>
           <ScenarioExplorer {...toExplorerProps(brief)} />
+          <DriversWhy drivers={brief.analysis.drivers} />
           <ProbabilityBars posterior={brief.analysis.posterior} />
           {Object.keys(brief.screening).length > 0 && (
             <Card>

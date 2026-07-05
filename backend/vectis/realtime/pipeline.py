@@ -28,7 +28,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+import numpy as np
 
 from vectis.agents.board.schemas import BoardInput, DecisionIntelligenceReport, ScenarioView
 from vectis.agents.board.service import SimulationBoardService
@@ -44,6 +46,7 @@ from vectis.realtime.state.store import MemoryStateStore
 from vectis.realtime.streams.broker import DEFAULT_TOPIC, MemoryBroker, MessageBroker
 from vectis.realtime.streams.consumer import EventConsumer
 from vectis.simulation.engine.runner import VectorizedMonteCarloEngine
+from vectis.simulation.models.base import Driver
 from vectis.simulation.probability.calibration import Calibrator
 from vectis.simulation.probability.uncertainty import (
     confidence_from_entropy,
@@ -112,6 +115,10 @@ class ForecastResult:
     posterior: dict[str, float]
     run: SimulationRun
     report: DecisionIntelligenceReport | None = None
+    #: Closed-form per-factor driver attribution for this cell's promoted forecast
+    #: (Session 41). Empty until the producer computes it; only populated for a real
+    #: T1/T2 forecast, never for a T0 screening estimate.
+    drivers: list[Driver] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -307,7 +314,15 @@ class ContinuousPipeline:
             risk_band=RiskBand.from_score(risk_score),
             posterior=job.posterior,
             run=run,
+            drivers=self._drivers(state),
         )
+
+    def _drivers(self, overlaid: WorldState) -> list[Driver]:
+        """Closed-form driver attribution for this forecast: the live cell's overlaid inputs
+        vs the illustrative base twin, through the engine's own hazard coefficients."""
+        inputs = {v.name: np.array([v.value], dtype=float) for v in overlaid.variables}
+        baseline = {v.name: v.value for v in self._base_state.variables}
+        return self._engine.hazard.explain(inputs, baseline)
 
     def _overlay_state(self, kalman_state: KalmanCellState) -> WorldState:
         """Project the live Kalman means onto the base WorldState via :data:`KALMAN_TO_WORLD`.

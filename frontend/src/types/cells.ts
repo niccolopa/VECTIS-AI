@@ -18,12 +18,25 @@ export interface ScenarioBrief {
   risk: ProbabilityDistribution;
 }
 
+/** One ranked, signed driver behind a T1/T2 cell's risk — the "Why" (Session 41).
+ * Exact closed-form attribution from the model's own coefficients; `caveat` carries
+ * the standing uncalibrated-coefficients honesty label. Never present for a T0 cell. */
+export interface DriverBrief {
+  factor: string;
+  contribution: number; // signed log-odds (log-rate for quakes) shift vs baseline
+  direction: "increases" | "decreases" | "neutral";
+  input_value: number;
+  baseline_value: number;
+  caveat: string;
+}
+
 export interface CellAnalysis {
   risk: number;
   band: RiskBand;
   confidence: number;
   posterior: Record<string, number>;
   scenarios: ScenarioBrief[];
+  drivers: DriverBrief[]; // ranked by |contribution|, T1/T2 only
   report: DecisionIntelligenceReport | null;
 }
 

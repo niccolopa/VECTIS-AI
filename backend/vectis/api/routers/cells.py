@@ -45,6 +45,21 @@ class ScenarioBrief(BaseModel):
     risk: ProbabilityDistribution
 
 
+class DriverBrief(BaseModel):
+    """One ranked, signed factor behind a T1/T2 cell's risk — the "Why" (Session 41).
+
+    Sourced from the promoted forecast's own coefficients (``HazardModel.explain``); the
+    ``caveat`` carries the standing uncalibrated-coefficients honesty label.
+    """
+
+    factor: str
+    contribution: float = Field(description="Signed log-odds (log-rate for quakes) shift vs baseline.")
+    direction: Literal["increases", "decreases", "neutral"]
+    input_value: float
+    baseline_value: float
+    caveat: str
+
+
 class CellAnalysis(BaseModel):
     """The T1/T2 layer: a real Monte Carlo + Bayesian forecast (and board report)."""
 
@@ -53,6 +68,10 @@ class CellAnalysis(BaseModel):
     confidence: float
     posterior: dict[str, float]
     scenarios: list[ScenarioBrief]
+    drivers: list[DriverBrief] = Field(
+        default_factory=list,
+        description="Closed-form driver attribution, ranked by |contribution| — T1/T2 only.",
+    )
     report: DecisionIntelligenceReport | None
 
 
@@ -91,6 +110,17 @@ def _analysis_view(result: ForecastResult) -> CellAnalysis:
                 risk=o.risk,
             )
             for o in result.run.outcomes
+        ],
+        drivers=[
+            DriverBrief(
+                factor=d.factor,
+                contribution=d.contribution,
+                direction=d.direction,
+                input_value=d.input_value,
+                baseline_value=d.baseline_value,
+                caveat=d.caveat,
+            )
+            for d in result.drivers
         ],
         report=result.report,
     )
