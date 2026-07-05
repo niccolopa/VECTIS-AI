@@ -81,8 +81,11 @@ class GdacsConnector(BaseAPIConnector):
     def fetch(self) -> dict[str, Any]:
         url = f"{self.base_url}/gdacsapi/api/events/geteventlist/{self._profile}"
         try:
-            return self.get_json(url)
+            raw = self.get_json(url)
+            self.last_data_source = "live"
+            return raw
         except ConnectorError as exc:
+            self.last_data_source = "synthetic_fallback"
             logger.warning("[WARN] %s unreachable — serving offline alerts: %s", self.source, exc)
             return {"features": [_offline_feature(*a) for a in _OFFLINE_ALERTS]}
 

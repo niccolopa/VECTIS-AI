@@ -109,6 +109,8 @@ class FirmsConnector(BaseAPIConnector):
 
     def fetch(self) -> dict[str, Any]:
         if not self._live:
+            # No MAP_KEY and no gateway → synthetic every poll, independent of the network.
+            self.last_data_source = "synthetic_fallback"
             return {"detections": _offline_detections()}
         # When a gateway holds the key, send a placeholder segment for path-shape parity.
         key = self._api_key or "MANAGED"
@@ -116,8 +118,11 @@ class FirmsConnector(BaseAPIConnector):
             f"{self.base_url}/api/area/csv/{key}/{self._product}/{self._area}/{self._day_range}"
         )
         try:
-            return {"detections": _parse_firms_csv(self.get_text(url))}
+            detections = {"detections": _parse_firms_csv(self.get_text(url))}
+            self.last_data_source = "live"
+            return detections
         except ConnectorError as exc:
+            self.last_data_source = "synthetic_fallback"
             logger.warning("[WARN] %s unreachable — serving offline detections: %s", self.source, exc)
             return {"detections": _offline_detections()}
 

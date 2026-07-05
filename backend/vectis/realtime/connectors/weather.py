@@ -74,6 +74,7 @@ class WeatherAPIConnector(BaseAPIConnector):
 
     def fetch(self) -> dict[str, Any]:
         if not self.base_url:
+            self.last_data_source = "synthetic_fallback"
             return _offline_reading()
         try:
             raw = self.get_json(
@@ -85,8 +86,10 @@ class WeatherAPIConnector(BaseAPIConnector):
                 },
             )
         except ConnectorError as exc:
+            self.last_data_source = "synthetic_fallback"
             logger.warning("[WARN] %s unreachable — serving offline synthetic reading: %s", self.source, exc)
             return _offline_reading()
+        self.last_data_source = "live"
         return _parse_open_meteo(raw)
 
     def normalize(self, raw: dict[str, Any]) -> list[GlobalEvent]:

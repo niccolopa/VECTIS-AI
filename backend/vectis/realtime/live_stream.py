@@ -450,4 +450,6 @@ def _event_view(event: GlobalEvent) -> dict[str, Any]:
         "variable": obs.variable,
         "value": round(obs.value, 3),
         "observed_at": obs.observed_at.isoformat(),
+        # Per-event honesty: was this genuinely fetched live, or a synthetic fallback?
+        "data_source": event.data_source,
     }

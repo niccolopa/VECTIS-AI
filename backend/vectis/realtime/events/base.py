@@ -20,9 +20,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+#: Whether an event carries genuinely-fetched live data or a connector's offline synthetic
+#: fallback. Stamped per-poll by the connector (Session 41) so live-vs-synthetic status
+#: propagates from ingestion all the way to the terminal — never a silent substitution.
+DataSource = Literal["live", "synthetic_fallback"]
 
 #: A grid-cell identifier (e.g. an H3 index or a raster tile key). The exact tiling is
 #: a ``state/`` implementation detail; the rest of V3 treats a cell as an opaque,
@@ -71,6 +76,12 @@ class GlobalEvent(BaseModel):
         ge=0.0,
         le=1.0,
         description="Raw source confidence in this measurement, 0…1 (1 = fully trusted).",
+    )
+    data_source: DataSource = Field(
+        default="synthetic_fallback",
+        description="Whether this event is genuinely-fetched live data or a connector's "
+        "offline synthetic fallback. Stamped per-poll; defaults to the honest, safe "
+        "assumption (synthetic) until a connector confirms a live fetch.",
     )
     payload: dict[str, Any] = Field(
         default_factory=dict, description="Raw, source-specific fields (untrusted)."

@@ -26,7 +26,7 @@ from typing import Any
 import httpx
 
 from vectis.core.logging import get_logger
-from vectis.realtime.events.base import GlobalEvent
+from vectis.realtime.events.base import DataSource, GlobalEvent
 
 logger = get_logger(__name__)
 
@@ -65,6 +65,11 @@ class BaseAPIConnector(ABC):
         self.timeout = timeout
         self._sleep = sleep  # injectable so tests don't actually wait on backoff
         self._client = client or httpx.Client(timeout=timeout)
+        #: The data source of the most recent poll — set by :meth:`fetch` at the exact
+        #: branch where it chooses real feed data vs the offline fallback, and stamped
+        #: onto every event by :meth:`collect`. Defaults to the honest, safe assumption
+        #: (synthetic) until a live fetch actually succeeds.
+        self.last_data_source: DataSource = "synthetic_fallback"
 
     # ----- resilient HTTP -------------------------------------------------------
 
@@ -140,9 +145,17 @@ class BaseAPIConnector(ABC):
         try:
             events = self.normalize(self.fetch())
         except ConnectorError as exc:
+            # A feed that fell through to here is unreachable — its next cycle is synthetic.
+            self.last_data_source = "synthetic_fallback"
             logger.warning("[WARN] %s unavailable — skipping this cycle: %s", self.source, exc)
             return []
-        logger.info("[INFO] %s yielded %d event(s)", self.source, len(events))
+        # Stamp each event with what this poll actually produced (set by fetch()), so a
+        # synthetic fallback is never silently presented as live downstream.
+        for event in events:
+            event.data_source = self.last_data_source
+        logger.info(
+            "[INFO] %s yielded %d event(s) [%s]", self.source, len(events), self.last_data_source
+        )
         return events
 
     def close(self) -> None:

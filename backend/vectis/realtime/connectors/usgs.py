@@ -73,8 +73,11 @@ class UsgsQuakeConnector(BaseAPIConnector):
     def fetch(self) -> dict[str, Any]:
         url = f"{self.base_url}/earthquakes/feed/v1.0/summary/{self._feed}.geojson"
         try:
-            return self.get_json(url)
+            raw = self.get_json(url)
+            self.last_data_source = "live"
+            return raw
         except ConnectorError as exc:
+            self.last_data_source = "synthetic_fallback"
             logger.warning("[WARN] %s unreachable — serving offline quakes: %s", self.source, exc)
             return {"features": [_offline_feature(*q) for q in _OFFLINE_QUAKES]}
 
