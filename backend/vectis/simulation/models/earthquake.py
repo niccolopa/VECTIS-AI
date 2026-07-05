@@ -27,13 +27,14 @@ change. This model's existence is not validation.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from vectis.simulation.models.base import HazardModel, load_calibrated_or_default
+from vectis.simulation.models.base import Driver, HazardModel, load_calibrated_or_default
 from vectis.simulation.scenarios.base import ScenarioGenerator
 from vectis.simulation.schemas import (
     DistributionFamily,
@@ -74,6 +75,44 @@ class EarthquakeImpactModel(HazardModel):
         )
         decay = np.power((days + self.omori_c_days) / self.omori_c_days, -self.omori_p)
         return np.asarray(1.0 - np.exp(-rate * decay), dtype=float)
+
+    def explain(
+        self, inputs: Mapping[str, np.ndarray], baseline: Mapping[str, float]
+    ) -> list[Driver]:
+        """Exact per-factor decomposition of the Poisson **log-rate** vs the baseline point.
+
+        This model is not logistic, so the base-class log-odds form does not apply. The
+        equivalent exact decomposition here is of ``log(rate · decay)``, whose two terms
+        separate cleanly (both zero when the input equals its baseline):
+
+        - magnitude: ``ln(10) · productivity_log10 · (M − M₀)`` — linear, the coef×(x−baseline)
+          form with ``coef = d(log-rate)/dM``.
+        - elapsed days: ``−p · (ln(d + c) − ln(d₀ + c))`` — the Omori decay term, exact (not
+          linear in ``d``, so it cannot be faked as a single coefficient).
+
+        Their sum equals ``log(rate·decay)(input) − log(rate·decay)(baseline)`` exactly.
+        Ranked by ``|contribution|``, like the logistic drivers, and carries the same caveat.
+        """
+        drivers: list[Driver] = []
+        mag_col = inputs.get("mainshock_magnitude")
+        if mag_col is not None and len(mag_col):
+            m = float(np.mean(np.asarray(mag_col, dtype=float)))
+            m0 = float(baseline.get("mainshock_magnitude", self.reference_magnitude))
+            coef = math.log(10.0) * self.productivity_log10  # d(log-rate)/dM, exact
+            drivers.append(
+                Driver("mainshock_magnitude", coef * (m - m0), input_value=m, baseline_value=m0)
+            )
+        days_col = inputs.get("days_since_mainshock")
+        if days_col is not None and len(days_col):
+            d = max(float(np.mean(np.asarray(days_col, dtype=float))), 0.0)
+            d0 = max(float(baseline.get("days_since_mainshock", 0.0)), 0.0)
+            c = self.omori_c_days
+            contribution = -self.omori_p * (math.log(d + c) - math.log(d0 + c))
+            drivers.append(
+                Driver("days_since_mainshock", contribution, input_value=d, baseline_value=d0)
+            )
+        drivers.sort(key=lambda x: abs(x.contribution), reverse=True)
+        return drivers
 
 
 def default_earthquake_model(artifact_path: Path | None = None) -> EarthquakeImpactModel:
@@ -159,6 +198,20 @@ def demo() -> None:
 
     scenarios = EarthquakeScenarioGenerator().generate(aftershock_state())
     assert abs(sum(s.prior for s in scenarios.scenarios) - 1.0) < 1e-9
+
+    # explain(): a bigger, fresher quake than baseline → magnitude increases, elapsed-days
+    # increases (fresher = less decay); ranked by |contribution|; sum = exact log-rate shift.
+    baseline = {"mainshock_magnitude": 5.0, "days_since_mainshock": 5.0}
+    drivers = model.explain(
+        {"mainshock_magnitude": np.array([7.0]), "days_since_mainshock": np.array([0.5])},
+        baseline,
+    )
+    by = {d.factor: d for d in drivers}
+    assert by["mainshock_magnitude"].direction == "increases"
+    assert by["days_since_mainshock"].direction == "increases"  # fresher than baseline
+    assert [d.factor for d in drivers] == sorted(
+        by, key=lambda f: abs(by[f].contribution), reverse=True
+    )
     print("OK", round(float(small_old[0]), 4), round(float(big_fresh[0]), 4))
 
 

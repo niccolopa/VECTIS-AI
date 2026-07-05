@@ -141,6 +141,20 @@ def demo() -> None:
 
     scenarios = CycloneScenarioGenerator().generate(approaching_cyclone_state())
     assert abs(sum(s.prior for s in scenarios.scenarios) - 1.0) < 1e-9
+
+    # explain() (base-class logistic path): above-baseline alert + wind both increase risk,
+    # each contribution is exactly coef × (input − baseline), ranked by |contribution|.
+    baseline = {"cyclone_alert_level": 1.0, "wind_speed_kmh": 20.0}
+    drivers = model.explain(
+        {"cyclone_alert_level": np.array([3.0]), "wind_speed_kmh": np.array([160.0])}, baseline
+    )
+    coeffs = model.coefficients
+    for d in drivers:
+        assert d.direction == "increases"
+        expected = coeffs[d.factor] * (d.input_value - d.baseline_value)
+        assert abs(d.contribution - expected) < 1e-12
+    # Ranked by |contribution|: wind 0.025·140 = 3.5 edges out alert 1.6·2 = 3.2.
+    assert [d.factor for d in drivers] == ["wind_speed_kmh", "cyclone_alert_level"]
     print("OK", round(float(calm[0]), 4), round(float(landfall[0]), 4))
 
 
