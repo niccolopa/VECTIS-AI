@@ -10,6 +10,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 
+import { ConnectorBadges, SyntheticDemoBanner } from "@/features/terminal/ConnectorStatusStrip";
 import { GlobalEventTicker } from "@/features/terminal/GlobalEventTicker";
 import { RegionBriefPanel } from "@/features/terminal/RegionBriefPanel";
 import { WatchlistPanel } from "@/features/terminal/WatchlistPanel";
@@ -184,6 +185,83 @@ describe("RegionBriefPanel honesty", () => {
     expect(screen.getByText(/bayesian posterior/i)).toBeInTheDocument(); // bars
     expect(screen.getByText(/ai decision intelligence brief/i)).toBeInTheDocument();
     expect(screen.queryByText(/screening estimate only/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('RegionBriefPanel "Why" driver attribution', () => {
+  it("shows the Why section for a T1/T2 cell, ranked and honestly caveated", async () => {
+    server.use(http.get(`/api/v1/cells/${CELL}/brief`, () => HttpResponse.json(T2_BRIEF)));
+    renderWithProviders(
+      <RegionBriefPanel cellId={CELL} pinned={false} onTogglePin={() => {}} onClose={() => {}} />,
+    );
+
+    expect(await screen.findByText(/what is moving this cell's risk/i)).toBeInTheDocument();
+    expect(screen.getByText("Temp anomaly c")).toBeInTheDocument();
+    expect(screen.getByText(/increases/i)).toBeInTheDocument();
+    expect(screen.getByText(/decreases/i)).toBeInTheDocument();
+    expect(screen.getByText(/uncalibrated coefficients/i)).toBeInTheDocument();
+  });
+
+  it("never shows the Why section for a screening-only (T0) cell", async () => {
+    server.use(http.get(`/api/v1/cells/${CELL}/brief`, () => HttpResponse.json(T0_BRIEF)));
+    renderWithProviders(
+      <RegionBriefPanel cellId={CELL} pinned={false} onTogglePin={() => {}} onClose={() => {}} />,
+    );
+
+    // Wait for the T0 chrome, then assert the Why heading is absent — a screening
+    // estimate has no driver attribution to show.
+    expect(await screen.findByText(/screening estimate only/i)).toBeInTheDocument();
+    expect(screen.queryByText(/what is moving this cell's risk/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("live/synthetic transparency", () => {
+  const ALL_SYNTHETIC = {
+    connectors: [
+      { source: "nasa_firms", label: "Fire", data_source: "synthetic_fallback" },
+      { source: "usgs_quake", label: "Quake", data_source: "synthetic_fallback" },
+      { source: "gdacs", label: "Multi-hazard", data_source: "synthetic_fallback" },
+      { source: "weather_api", label: "Weather", data_source: "synthetic_fallback" },
+    ],
+    all_synthetic: true,
+    any_live: false,
+  };
+
+  it("badges reflect each feed's actual data_source, not a hardcoded assumption", async () => {
+    // Default MSW handler: Fire synthetic, the other three live.
+    renderWithProviders(<ConnectorBadges />);
+
+    const fire = await screen.findByTestId("connector-badge-nasa_firms");
+    const quake = screen.getByTestId("connector-badge-usgs_quake");
+    expect(fire).toHaveAttribute("data-state", "synthetic_fallback");
+    expect(fire).toHaveTextContent(/synthetic/i);
+    expect(quake).toHaveAttribute("data-state", "live");
+    expect(quake).toHaveTextContent(/live/i);
+  });
+
+  it("shows the all-synthetic banner if and only if every feed is synthetic", async () => {
+    // Default handler is mixed → banner absent.
+    const mixed = renderWithProviders(<SyntheticDemoBanner />);
+    await waitFor(() =>
+      expect(mixed.queryByTestId("synthetic-demo-banner")).not.toBeInTheDocument(),
+    );
+
+    // All synthetic (the zero-credential fresh clone) → banner present.
+    server.use(http.get("/api/v1/connectors", () => HttpResponse.json(ALL_SYNTHETIC)));
+    renderWithProviders(<SyntheticDemoBanner />);
+    expect(await screen.findByTestId("synthetic-demo-banner")).toHaveTextContent(
+      /full synthetic demo/i,
+    );
+  });
+
+  it("flags a synthetic-sourced event inline in the tape", () => {
+    const events: V3Event[] = [
+      { ...makeEvent(1), data_source: "synthetic_fallback" },
+      { ...makeEvent(2), data_source: "live" },
+    ];
+    renderWithProviders(<GlobalEventTicker events={events} />);
+    // Exactly one SYN marker — for the synthetic event, not the live one.
+    expect(screen.getAllByTestId("ticker-synthetic")).toHaveLength(1);
   });
 });
 

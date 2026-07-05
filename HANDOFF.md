@@ -12,7 +12,23 @@
 > (B) V1/V4 unification) are in Session 40's "Next Steps". Every other "Next Steps" line is
 > that session's own historical pointer to the one that followed it — not a live to-do.
 
-Last updated: **2026-07-04** · End of **Session 40** (Hardening & the Honest Global Scale
+Last updated: **2026-07-05** · End of **Session 41** (Real Driver Explainability &
+Live-Data Transparency — **COMPLETE. Path B closed.**: added closed-form driver attribution
+to every `HazardModel` — `explain()` returns each factor's exact `coefᵢ × (inputᵢ − baselineᵢ)`
+log-odds contribution for the three logistic hazards (one shared base implementation) and the
+exact analogous log-rate decomposition for the Omori–Poisson earthquake model, no SHAP, no new
+dependency, honestly caveated as uncalibrated; surfaced it as a **"Why" card** in
+`RegionBriefPanel` populated only for a genuinely-promoted T1/T2 cell (T0 screening-only
+treatment untouched, **no promotion bypass anywhere** — drivers ride the real forecast the
+`TierManager` already granted); stamped a per-poll **`data_source` = live | synthetic_fallback**
+on every `GlobalEvent` (FIRMS is credential-gated, USGS/GDACS/Weather network-gated) and built
+the transparency UI — `GET /api/v1/connectors`, a persistent per-feed **LIVE/SYNTHETIC badge
+cluster**, and one unmistakable **"Full Synthetic Demo" banner** shown iff every feed is
+synthetic (the zero-credential fresh-clone state), with `data_source` carried into the ticker
+and brief too; audited this environment as weather/USGS/GDACS **LIVE**, FIRMS **SYNTHETIC**
+(no MAP_KEY). Backend **327 tests green** + 1 pre-existing skip, ruff + mypy clean; frontend
+**29 Vitest tests**, tsc + eslint clean. See the Session 41 section directly below.) · End of
+**Session 40** (Hardening & the Honest Global Scale
 Test — **COMPLETE. VECTIS V4 RELEASE, tagged `v4.0.0`**: resolved the confirmed V1-vs-V4
 analysis-surface confusion via **path (A), clear separation + labeling** — the sidebar's
 *Risk Intelligence*/*Reports* became **California Case Study**/**Case Study Reports** under a
@@ -244,6 +260,124 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 41 — Real Driver Explainability & Live-Data Transparency
+
+### Goal
+
+Close V4's final open item — the deferred **Path B** (genuine V1/V4 unification) — as the
+owner scoped it, without violating the tiering discipline or the offline-first property. Two
+additive pieces: (1) **closed-form driver attribution** for every hazard model, replicating
+what the V1 Reports page showed but sourced from the real global forecast, so an operator can
+click one already-promoted flagged cell and see *why* its risk is what it is; and (2) an
+explicit, **per-connector live-vs-synthetic indicator** throughout the terminal, so no one
+ever mistakes offline fallback data for live global data — with an unmistakable overall
+"full synthetic demo" state for the zero-credentials fresh clone. Hard constraints: **never**
+bypass or force-promote a cell through `TierManager`; leave the T0 screening-only treatment
+completely untouched; keep the synthetic fallback (it is what makes a keyless clone runnable)
+— the requirement is *transparency*, not elimination.
+
+### Current Progress: Session 41 — Real Driver Explainability & Live-Data Transparency — COMPLETE. Path B closed.
+
+Five atomic commits, each tested before the next:
+
+1. **Closed-form driver attribution on the `HazardModel` ABC** (`simulation/models/base.py`).
+   Added `explain(inputs, baseline) -> list[Driver]`. The three logistic hazards (wildfire,
+   flood, cyclone) share **one** base implementation: a factor's contribution is exactly
+   `coefᵢ × (mean(inputᵢ) − baselineᵢ)` in log-odds — the model's own coefficients, no SHAP,
+   no new dependency, no approximation, ranked by `|contribution|`. `EarthquakeImpactModel`
+   is **Omori–Poisson, not logistic**, so it overrides `explain()` with the exact analogous
+   **log-rate** decomposition (a linear magnitude term + the non-linear Omori decay term,
+   both zero at baseline, summing to the exact `log(rate·decay)` shift). Every `Driver`
+   carries `UNCALIBRATED_DRIVER_CAVEAT`.
+2. **Surface drivers in `RegionBriefPanel` — T1/T2 only** (`realtime/compute.py`,
+   `realtime/pipeline.py`, `api/routers/cells.py`, `types/cells.ts`, `RegionBriefPanel.tsx`).
+   `ForecastResult` gained a `drivers` field, populated at forecast time from the cell's
+   overlaid observed inputs vs the illustrative twin baseline through the engine's **own**
+   hazard model — in both the Global Terminal's `CellForecastRunner` (the shared compute
+   path) and the California `ContinuousPipeline`. The brief API exposes it as
+   `CellAnalysis.drivers`, and the panel renders a **"Why · driver attribution"** card
+   *inside the analysis block*, so it appears for T1/T2 and structurally never for a T0 cell.
+3. **Per-connector `data_source`** (`realtime/events/base.py`, `connectors/*`,
+   `realtime/live_stream.py`). `GlobalEvent` gained `data_source: "live" | "synthetic_fallback"`.
+   Each connector sets `last_data_source` at the exact `fetch()` branch where it chooses real
+   data vs the offline fallback; the base `collect()` stamps every event with it. Real audit
+   of what determines live vs synthetic (below).
+4. **The live/synthetic transparency UI** (`api/routers/connectors.py`,
+   `ConnectorStatusStrip.tsx`, `TerminalPage.tsx`, ticker + brief). New
+   `GET /api/v1/connectors` reports each feed's real last-poll state + `all_synthetic`.
+   `ConnectorBadges` is a persistent Fire/Quake/Multi-hazard/Weather cluster (green LIVE /
+   amber SYNTHETIC); `SyntheticDemoBanner` is one unmistakable top banner shown **iff** every
+   feed is synthetic. `data_source` is carried to the point of analysis too — the ticker flags
+   synthetic detections inline, the brief annotates each source feed's current LIVE/SYN state.
+5. **End-to-end proof.** New `tests/simulation/test_driver_attribution.py` (sign, exactness,
+   ranking, earthquake log-rate reconstruction, caveat), `data_source` tests in
+   `test_connectors.py` (live/synthetic set + stamped per-poll; FIRMS is credential-gated,
+   the keyless three are network-gated), `tests/api/test_connector_status.py` (endpoint
+   reflects real state; `all_synthetic` iff all synthetic), driver assertions in
+   `test_cells.py` (T1 exposes drivers, T0 has none) and `test_shared_compute.py` (real
+   promoted forecast carries drivers). Frontend: Why-only-for-T1/T2, badges reflect
+   `data_source`, banner iff all-synthetic, ticker SYN flag.
+
+**Validation:** backend **327 passed, 1 skipped** (the pre-existing network-gated skip),
+ruff + mypy clean (171 files); frontend **29 Vitest tests** (was 24), eslint + tsc clean.
+
+**The real audit (this environment, 2026-07-05).** Network was up and no `VECTIS_FIRMS_API_KEY`
+was set. Result: **weather_api LIVE** (Open-Meteo 200, keyless), **usgs_quake LIVE** (200,
+keyless), **gdacs LIVE** (200, keyless), **nasa_firms SYNTHETIC** (no MAP_KEY, no Sluice →
+credential-gated off, independent of the network). Determinants: FIRMS is **credential-gated**
+(live only with a MAP_KEY or a Sluice gateway); USGS/GDACS/Weather are **network-gated** (live
+whenever reachable, synthetic only on a network/timeout failure). A no-network fresh clone
+yields all four synthetic → the top banner fires.
+
+### What Worked
+
+- **The closed form was already there.** Every hazard is `sigmoid(intercept + Σ coefᵢ·xᵢ)`
+  (or, for quakes, a Poisson rate with a log-linear magnitude term), so the per-factor
+  contribution is a subtraction, not a model. Exposing an existing computation — zero new
+  dependency, the Golden Rule untouched — was exactly the owner's scoping.
+- **Computing drivers at forecast time, not brief time.** The attribution rides the *same*
+  `HazardModel` instance the Monte Carlo run used and the *same* overlaid inputs, so it can
+  never drift from the number it explains. The brief just surfaces `result.drivers`.
+- **`data_source` as a per-poll stamp at the one choke point.** Each connector already had a
+  single branch between real data and its offline fallback; setting `last_data_source` there
+  and stamping in the base `collect()` meant the honest label rode every event for free.
+- **Reusing everything.** No new selection paradigm, no new panel — the Why card lives inside
+  the existing S37 single-click brich block; the badges reuse the S37/S39 tactical language.
+
+### What Didn't Work
+
+- **The spec's "all four are logistic" was inaccurate.** `EarthquakeImpactModel` is
+  Omori–Poisson and carries **no** coefficient dict — a base-class loop over `self.coefficients`
+  would have `KeyError`'d or, worse, silently fabricated a fake linear term. Resolved honestly:
+  base implementation for the three logistic hazards, one exact override for earthquake (its
+  days term is logarithmic, genuinely not `coef×(x−baseline)`). The override is documented as
+  *why* it exists, not hidden.
+- **Pre-first-poll status defaults to synthetic.** `last_data_source` can't know a keyless
+  feed is reachable until it actually polls, so the endpoint reports all-synthetic in the
+  brief window before the compute loop's first tick (and always, under `VECTIS_GLOBAL_INGESTION=0`
+  in tests). This is deliberately the *safe* honest default (never claim live unproven); the
+  loop polls on startup so a real terminal flips within one tick.
+- **A per-observation `data_source` on each cell was out of scope.** Cell state EMA-blends many
+  observations over time; storing per-source provenance per cell would have been a state-layer
+  surgery for little gain. The brief instead labels each contributing feed's *current* status —
+  honest and clearly a "current feed status" statement, not a per-datapoint claim.
+
+### Next Steps
+
+V4 is fully closed — **Path B is done**, and there is no live next step inside the V4 arc.
+Genuinely-post-V4, credential-dependent frontier work (not required, not started):
+
+- **Wire a real FIRMS MAP_KEY / the Sluice** and watch the Fire badge flip to LIVE — the one
+  connector that is synthetic in a default clone. Everything downstream already honors it.
+- **Real calibration** remains the standing caveat across the whole repo: no hazard model has
+  been fitted to real labels, so the drivers are directional (exact sign/ranking) but not
+  validated magnitudes. A calibration artifact drops into `artifacts/calibration/` and both
+  the forecast and its attribution pick it up through the existing seam with zero code change.
+- **Per-cell live/synthetic provenance** (vs the current per-feed status) if an operator ever
+  needs to know a *specific* historical observation's source — a state-layer change, not a UI one.
 
 ---
 

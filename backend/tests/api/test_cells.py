@@ -12,6 +12,7 @@ from vectis.core.schemas import RiskBand
 from vectis.realtime.pipeline import ForecastResult
 from vectis.realtime.state.cell_id import assign_cell_id
 from vectis.realtime.state.models import WorldCellState
+from vectis.simulation.models.base import Driver
 from vectis.simulation.schemas import (
     ProbabilityDistribution,
     ScenarioOutcome,
@@ -46,6 +47,10 @@ def _forecast(cell_id: str) -> ForecastResult:
         cell_id=cell_id, risk_score=68.0, confidence=0.82,
         risk_band=RiskBand.from_score(68.0),
         posterior={"baseline": 1.0}, run=run,
+        drivers=[
+            Driver("temp_anomaly_c", contribution=1.65, input_value=18.0, baseline_value=15.0),
+            Driver("wind_speed_kmh", contribution=-0.4, input_value=10.0, baseline_value=30.0),
+        ],
     )
 
 
@@ -58,7 +63,7 @@ def test_screened_only_cell_is_an_honest_t0(client) -> None:
     body = res.json()
 
     assert body["tier"] == "T0"
-    assert body["analysis"] is None  # nothing deep exists — nothing deep is shown
+    assert body["analysis"] is None  # nothing deep exists — nothing deep is shown, no drivers
     assert body["screening"]["wildfire"] > 0
     assert body["screening"]["flood"] > 50.0
     assert body["state"]["temperature"] == 40.0
@@ -82,6 +87,11 @@ def test_pipeline_forecast_cell_is_t1_with_full_distributions(client) -> None:
     )
     # Screening rides along — the panel can show the gap between screen and engine.
     assert body["screening"]["wildfire"] > 0
+    # The "Why" drivers ride the real analysis — ranked, signed, honestly labeled.
+    drivers = analysis["drivers"]
+    assert [d["factor"] for d in drivers] == ["temp_anomaly_c", "wind_speed_kmh"]
+    assert drivers[0]["direction"] == "increases" and drivers[1]["direction"] == "decreases"
+    assert all(d["caveat"] for d in drivers)
 
 
 def test_unknown_or_invalid_cells_404(client) -> None:

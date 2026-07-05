@@ -49,6 +49,24 @@ def _loop(
 
 
 # ── the real T1 runner ──────────────────────────────────────────────────────────────
+def test_runner_attaches_closed_form_drivers_to_the_real_forecast() -> None:
+    """A genuinely-promoted T1 forecast carries its driver attribution, computed from the
+    cell's observed drivers vs the illustrative twin baseline — flood's own factors,
+    ranked, honestly labeled. Only real forecasts get this; nothing forces promotion."""
+    runner = CellForecastRunner(config=_FAST)
+    wet, _ = runner.forecast(_wet_state(), "flood")
+
+    assert wet.drivers, "a promoted forecast must expose its drivers"
+    factors = {d.factor for d in wet.drivers}
+    assert factors <= {"precipitation_mm", "flood_alert_level"}
+    # A wet, high-alert cell above the baseline twin → drivers push risk up.
+    assert any(d.direction == "increases" for d in wet.drivers)
+    # Ranked by |contribution|, and every driver honestly caveated.
+    mags = [abs(d.contribution) for d in wet.drivers]
+    assert mags == sorted(mags, reverse=True)
+    assert all(d.caveat for d in wet.drivers)
+
+
 def test_runner_forecasts_a_flood_cell_from_its_observed_state() -> None:
     runner = CellForecastRunner(config=_FAST)
     wet, board_input = runner.forecast(_wet_state(), "flood")

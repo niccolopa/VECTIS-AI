@@ -120,6 +120,55 @@ def test_manager_merges_and_survives_a_dead_feed() -> None:
     assert len(batch) == 5  # temp/humidity/wind/drought/precip; dead feed contributes nothing, no crash
 
 
+def test_data_source_defaults_to_synthetic_before_any_fetch() -> None:
+    """The safe, honest default: unproven means synthetic, never an assumed-live claim."""
+    conn = _Probe(client=_client(httpx.MockTransport(lambda r: httpx.Response(200, json={}))))
+    assert conn.last_data_source == "synthetic_fallback"
+
+
+def test_live_fetch_marks_data_source_live_and_stamps_every_event() -> None:
+    """A genuine 200 → last_data_source='live', stamped onto each collected event."""
+    body = {"current": {"temperature_2m": 30.0, "relative_humidity_2m": 25.0, "wind_speed_10m": 18.0}}
+    client = _client(httpx.MockTransport(lambda r: httpx.Response(200, json=body)))
+    conn = WeatherAPIConnector(base_url="http://test/v1/forecast", client=client, sleep=lambda _: None)
+
+    events = conn.collect()
+    assert conn.last_data_source == "live"
+    assert events and all(e.data_source == "live" for e in events)
+
+
+def test_outage_marks_data_source_synthetic_and_stamps_the_fallback() -> None:
+    """A keyless feed that can't reach the network serves the offline fallback, labeled synthetic."""
+    client = _client(httpx.MockTransport(lambda r: httpx.Response(503)))
+    conn = WeatherAPIConnector(
+        base_url="http://test/v1/forecast", client=client, max_retries=2, sleep=lambda _: None
+    )
+
+    events = conn.collect()
+    assert conn.last_data_source == "synthetic_fallback"
+    assert events and all(e.data_source == "synthetic_fallback" for e in events)
+
+
+def test_firms_is_credential_gated_not_network_gated() -> None:
+    """No MAP_KEY + no gateway → synthetic every poll, regardless of the network; a key → live."""
+    from vectis.realtime.connectors.firms import _FIRMS_UPSTREAM, FirmsConnector
+
+    no_key = FirmsConnector(api_key="", base_url=_FIRMS_UPSTREAM, sleep=lambda _: None)
+    events = no_key.collect()
+    assert no_key.last_data_source == "synthetic_fallback"
+    assert events and all(e.data_source == "synthetic_fallback" for e in events)
+
+    # With a key, a successful fetch is live. FIRMS reads CSV via get_text.
+    csv = "latitude,longitude,frp,confidence\n37.0,-120.0,14.2,80\n"
+    client = _client(httpx.MockTransport(lambda r: httpx.Response(200, text=csv)))
+    keyed = FirmsConnector(
+        api_key="REAL_KEY", base_url=_FIRMS_UPSTREAM, client=client, sleep=lambda _: None
+    )
+    keyed_events = keyed.collect()
+    assert keyed.last_data_source == "live"
+    assert keyed_events and all(e.data_source == "live" for e in keyed_events)
+
+
 def test_gdacs_skips_non_point_geometries_instead_of_crashing() -> None:
     """Real GDACS responses mix Point alerts with Polygon/MultiPoint geometries
     (nested coordinate lists) — those must be skipped, never crash the poll cycle
