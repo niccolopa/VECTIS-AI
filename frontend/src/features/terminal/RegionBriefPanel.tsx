@@ -194,7 +194,11 @@ export function RegionBriefPanel({
   const brief = query.data;
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-y-auto" data-testid="region-brief">
+    // No h-full/overflow here: the terminal's right column is the scroll region.
+    // Pinning this panel's height made the flex children shrink-to-fit and the
+    // Cards' overflow-hidden clipped long text (e.g. the T0 explanation) mid-
+    // sentence instead of scrolling.
+    <div className="flex flex-col gap-3" data-testid="region-brief">
       <Card>
         <CardHeader
           eyebrow="Region Brief"
