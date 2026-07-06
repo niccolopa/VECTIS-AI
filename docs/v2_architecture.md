@@ -1,5 +1,12 @@
 # VECTIS V2 — System Architecture
 
+> **Historical document (Session 42 note).** The V2 *engine* described here — Monte
+> Carlo, Bayesian update, digital twin, real-time stream, analyst board — is alive and
+> powers the V4 Global Terminal. The dedicated V2 **web dashboard and its API**
+> (`DashboardPage`, `dashboard_service.py`, `routers/dashboard.py`, the What-If
+> simulator UI) were retired in Session 42; references to them below are kept as the
+> historical record of the V2 arc. The CLI console (`make demo-v2`) still runs.
+
 VECTIS V2 is a **real-time probabilistic decision-intelligence platform**. It turns
 a stream of real-world observations into *distributions over possible futures* —
 not single point predictions — and narrates them with an auditable AI board whose

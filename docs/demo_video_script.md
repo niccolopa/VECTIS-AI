@@ -80,15 +80,15 @@ make global-stress
 
 ---
 
-## PART 2 — The V1 Legacy Demo: California Case Study (≈ 1:30)
+## PART 2 — The Origin Demo (V1 Archive): California Case Study (≈ 1:30)
 
-**Title card:** `V1 LEGACY DEMO — California only. NOT the global system.`
+**Title card:** `ORIGIN DEMO · V1 ARCHIVE — California only. NOT the global system.`
 Keep a persistent corner label reading **"V1 · California case study"** for this whole
 segment.
 
 ### 0:00 – 0:15 · Frame it as history, up front
-**On screen:** the sidebar — point at the **"V1 Legacy Demo"** section and its amber
-in-app banner on the **California Case Study** page (`/risk`).
+**On screen:** the sidebar — expand the collapsed **"Origin Demo · V1 Archive"** section
+and show the amber in-app banner on the **California Case Study** page (`/risk`).
 **Narration:**
 > "This is where VECTIS started: a reactive pipeline from Session 1. It is a fixed
 > **California** demo — a separate, historical system, **not** part of the global terminal.
@@ -131,8 +131,9 @@ prose, never numbers. Every figure on any report is copied from the deterministi
 ## Exact assets referenced
 - **V4 Global Terminal:** route `/terminal`; stress `make global-stress`
   (`backend/scripts/global_stress_test.py`); tiles `GET /api/v1/tiles`.
-- **V1 legacy demo:** `python -m vectis.scripts.demo` (alias `make demo`); routes `/risk`
+- **V1 origin demo:** `python -m vectis.scripts.demo` (alias `make demo`); routes `/risk`
   (California Case Study) and `/reports` (Case Study Reports), both under the sidebar's
-  **V1 Legacy Demo** section.
-- **V2 dashboard (optional B-roll):** route `/dashboard`; `python -m vectis.scripts.demo_v2`
-  (`make demo-v2`); live ingest `POST /api/v1/stream/ingest` → Probability Timeline.
+  collapsed **Origin Demo · V1 Archive** section.
+- **V2 engine (optional B-roll):** `python -m vectis.scripts.demo_v2` (`make demo-v2`) — the
+  CLI console; the `/dashboard` web page was retired in Session 42 (the Global Terminal's
+  drill-down brief covers it).

@@ -106,8 +106,9 @@ page → hook (TanStack Query) → service client → apiClient.http → backend
 ### Routing & layout
 
 `app/App.tsx` defines routes under a single `AppLayout` (persistent Sidebar + Navbar, scrollable
-content outlet). Sidebar items: **Overview · Risk Intelligence · Maps · Reports · Simulations ·
-Datasets** (config in `components/layout/nav.ts`). Unknown routes → `NotFoundPage`.
+content outlet). Sidebar items: **Overview · Global Terminal · Simulations · Datasets**, plus the
+collapsed **Origin Demo · V1 Archive** section (*California Case Study* · *Case Study Reports*)
+(config in `components/layout/nav.ts`). Unknown routes → `NotFoundPage`.
 
 ---
 
@@ -116,9 +117,9 @@ Datasets** (config in `components/layout/nav.ts`). Unknown routes → `NotFoundP
 | Route | Page | What it shows |
 |---|---|---|
 | `/` | **Overview** | Risk posture stat cards (count, avg, highest, system status) + recent-analyses table, live from `/api/v1/analyses` and `/health`. |
-| `/risk` | **Risk Intelligence** | The vertical: region selector → **Run analysis** → interactive risk map + **Risk Detail Panel** (score, confidence, drivers, recommended actions) + SHAP **DriversChart**. |
-| `/maps` | **Maps** | Full-bleed MapLibre risk map with legend. |
-| `/reports` | **Reports** | List of decision reports. |
+| `/terminal` | **Global Terminal** | The primary V4 experience: worldwide H3 choropleth, viewport-scoped SSE stream, per-feed LIVE/SYNTHETIC badges, click-to-analyze drill-down brief, watchlist, playback. |
+| `/risk` | **California Case Study** (V1 archive) | The origin vertical: region selector → **Run analysis** → interactive risk map + **Risk Detail Panel** (score, confidence, drivers, recommended actions) + SHAP **DriversChart**. |
+| `/reports` | **Case Study Reports** (V1 archive) | List of stored V1 decision reports, with per-row delete (confirmation-gated). |
 | `/reports/:id` | **Report Detail** | **ReportViewer** — executive summary, technical explanation, evidence, confidence, recommendations, with explicit separation of *AI insight* vs *supporting evidence* vs *human decision*; plus the agent trace. |
 | `/simulations` | **Simulations** | **ScenarioPanel** — real what-if results read from the report's Simulation trace, plus an architecture-only custom-scenario builder (controls wired, disabled pending backend). |
 | `/datasets` | **Datasets** | Catalog of data connectors (bundled sample = active; FIRMS/ERA5/Copernicus = planned). **Mock-backed** — see below. |

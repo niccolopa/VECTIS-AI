@@ -15,7 +15,7 @@
 | **redis** | `redis:7-alpine` | Shared hot-tier state store + event broker for the Redis-ready seams. Cache-only — nothing durable lives *only* here. |
 | **sluice** | `vectis-backend` (alt entrypoint) | The **ingestion gateway** (Session 31): credential failover, retry, and normalization in front of NASA FIRMS / USGS / GDACS. |
 | **backend** | `vectis-backend` | FastAPI app: the global H3 grid, tiered compute loop, tile server, streams, and the V1 California case study. Migrates, seeds, and trains on first boot. |
-| **frontend** | `vectis-frontend` | React console (`/terminal`, `/live`, `/dashboard`, and the V1 legacy demo). |
+| **frontend** | `vectis-frontend` | React console (`/terminal` and the Origin Demo · V1 Archive pages). |
 
 ```bash
 cp .env.example .env
