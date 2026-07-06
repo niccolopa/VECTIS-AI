@@ -35,3 +35,9 @@ class AnalysisService:
 
     def list_recent(self, limit: int = 20) -> list[dict]:
         return self.repository.list_recent(limit)
+
+    def delete(self, analysis_id: str) -> bool:
+        deleted = self.repository.delete(analysis_id)
+        if deleted:
+            log.info("analysis.deleted", id=analysis_id)
+        return deleted

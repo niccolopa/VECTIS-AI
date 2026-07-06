@@ -52,3 +52,15 @@ def test_model_card_endpoint(client) -> None:
 
 def test_get_missing_analysis_returns_404(client) -> None:
     assert client.get("/api/v1/analyses/doesnotexist").status_code == 404
+
+
+def test_delete_analysis_removes_it(client) -> None:
+    report = client.post("/api/v1/analyses", json={"region": "california"}).json()
+
+    assert client.delete(f"/api/v1/analyses/{report['id']}").status_code == 204
+    assert client.get(f"/api/v1/analyses/{report['id']}").status_code == 404
+    assert report["id"] not in [r["id"] for r in client.get("/api/v1/analyses").json()]
+
+
+def test_delete_missing_analysis_returns_404(client) -> None:
+    assert client.delete("/api/v1/analyses/doesnotexist").status_code == 404

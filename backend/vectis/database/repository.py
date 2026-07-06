@@ -20,6 +20,7 @@ class AnalysisRepository(Protocol):
     def save(self, report: DecisionReport) -> None: ...
     def get(self, analysis_id: str) -> DecisionReport | None: ...
     def list_recent(self, limit: int = 20) -> list[dict]: ...
+    def delete(self, analysis_id: str) -> bool: ...
 
 
 def _summary(report: DecisionReport) -> dict:
@@ -50,6 +51,9 @@ class MemoryAnalysisRepository:
     def list_recent(self, limit: int = 20) -> list[dict]:
         reports = sorted(self._store.values(), key=lambda r: r.generated_at, reverse=True)
         return [_summary(r) for r in reports[:limit]]
+
+    def delete(self, analysis_id: str) -> bool:
+        return self._store.pop(analysis_id, None) is not None
 
 
 class SqlAnalysisRepository:
@@ -85,6 +89,15 @@ class SqlAnalysisRepository:
                 AnalysisRecord.created_at.desc()).limit(limit)
             records = session.scalars(stmt).all()
             return [_summary(DecisionReport.model_validate(r.report)) for r in records]
+
+    def delete(self, analysis_id: str) -> bool:
+        with self._session_factory() as session:
+            record = session.get(AnalysisRecord, analysis_id)
+            if record is None:
+                return False
+            session.delete(record)
+            session.commit()
+            return True
 
 
 def build_repository() -> AnalysisRepository:

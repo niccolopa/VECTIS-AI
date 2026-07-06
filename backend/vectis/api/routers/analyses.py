@@ -41,3 +41,13 @@ def get_analysis(
     if report is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return report
+
+
+@router.delete("/{analysis_id}", status_code=204)
+def delete_analysis(
+    analysis_id: str,
+    service: AnalysisService = Depends(get_service),
+) -> None:
+    """Remove one stored report (the V1 archive's only clutter-control)."""
+    if not service.delete(analysis_id):
+        raise HTTPException(status_code=404, detail="Analysis not found")

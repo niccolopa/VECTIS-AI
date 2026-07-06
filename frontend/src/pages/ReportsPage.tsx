@@ -1,17 +1,20 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageContainer, PageHeader } from "@/components/layout/Page";
 import { LegacyDemoBanner } from "@/components/LegacyDemoBanner";
 import {
   Badge,
+  Button,
   Card,
   EmptyState,
   ErrorState,
   LoadingState,
+  Modal,
   RiskBadge,
   Table,
   type Column,
 } from "@/components/ui";
-import { useAnalyses } from "@/hooks/queries";
+import { useAnalyses, useDeleteAnalysis } from "@/hooks/queries";
 import { dateTime } from "@/utils/format";
 import { riskColor } from "@/utils/risk";
 import type { AnalysisSummary } from "@/types/api";
@@ -19,6 +22,9 @@ import type { AnalysisSummary } from "@/types/api";
 export function ReportsPage() {
   const navigate = useNavigate();
   const { data: analyses, isLoading, isError, refetch } = useAnalyses(100);
+  const remove = useDeleteAnalysis();
+  // The report queued for deletion — a confirmation modal gates the actual call.
+  const [pendingDelete, setPendingDelete] = useState<AnalysisSummary | null>(null);
 
   const columns: Column<AnalysisSummary>[] = [
     { key: "id", header: "ID", render: (r) => <span className="font-mono text-xs text-muted">{r.id.slice(0, 8)}</span> },
@@ -37,6 +43,24 @@ export function ReportsPage() {
     { key: "conf", header: "Conf.", align: "right", render: (r) => <span className="tabular-nums text-muted">{Math.round(r.confidence * 100)}%</span> },
     { key: "critic", header: "Critic", render: (r) => <Badge tone={r.approved ? "success" : "warning"}>{r.approved ? "approved" : "review"}</Badge> },
     { key: "when", header: "Generated", align: "right", render: (r) => <span className="text-muted">{dateTime(r.generated_at)}</span> },
+    {
+      key: "delete",
+      header: "",
+      align: "right",
+      render: (r) => (
+        <button
+          type="button"
+          aria-label={`Delete report ${r.id.slice(0, 8)}`}
+          onClick={(e) => {
+            e.stopPropagation(); // the row itself navigates to the report
+            setPendingDelete(r);
+          }}
+          className="rounded border border-border-strong px-1.5 py-0.5 text-2xs text-muted hover:border-risk-severe/60 hover:text-risk-severe"
+        >
+          ✕
+        </button>
+      ),
+    },
   ];
 
   return (
@@ -58,6 +82,36 @@ export function ReportsPage() {
           />
         )}
       </Card>
+
+      <Modal
+        open={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        title="Delete report?"
+      >
+        <p className="text-sm text-muted">
+          Permanently delete the {pendingDelete?.area_label} report{" "}
+          <span className="font-mono text-xs">{pendingDelete?.id.slice(0, 8)}</span> generated{" "}
+          {pendingDelete && dateTime(pendingDelete.generated_at)}? This cannot be undone.
+        </p>
+        {remove.isError && (
+          <p className="mt-2 text-xs text-risk-severe">{(remove.error as Error).message}</p>
+        )}
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setPendingDelete(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            loading={remove.isPending}
+            onClick={() =>
+              pendingDelete &&
+              remove.mutate(pendingDelete.id, { onSuccess: () => setPendingDelete(null) })
+            }
+          >
+            Delete
+          </Button>
+        </div>
+      </Modal>
     </PageContainer>
   );
 }

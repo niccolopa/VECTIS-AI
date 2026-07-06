@@ -63,6 +63,18 @@ export function useDatasets() {
   return useQuery({ queryKey: qk.datasets, queryFn: datasetsApi.list });
 }
 
+/** Delete a stored report; on success, drop its cache and refresh the list. */
+export function useDeleteAnalysis() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => analysesApi.remove(id),
+    onSuccess: (_void, id) => {
+      queryClient.removeQueries({ queryKey: qk.analysis(id) });
+      queryClient.invalidateQueries({ queryKey: qk.analyses });
+    },
+  });
+}
+
 /** Run a new analysis; on success, cache it, refresh the list, and focus it. */
 export function useRunAnalysis() {
   const queryClient = useQueryClient();

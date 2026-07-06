@@ -14,6 +14,7 @@ export const analysesApi = {
     }),
   list: (limit = 20) => http<AnalysisSummary[]>(`/api/v1/analyses?limit=${limit}`),
   get: (id: string) => http<DecisionReport>(`/api/v1/analyses/${id}`),
+  remove: (id: string) => http<void>(`/api/v1/analyses/${id}`, { method: "DELETE" }),
 };
 
 /** Extract the Simulation agent's scenarios from a report's trace (real data). */
