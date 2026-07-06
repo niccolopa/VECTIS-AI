@@ -18,7 +18,7 @@ them with an auditable AI board whose numbers are produced entirely by determini
 
 ---
 
-<img width="1918" height="906" alt="image" src="https://github.com/user-attachments/assets/36b80817-4367-4a6e-95da-5ad4f5ef74e8" />
+<img width="1918" height="868" alt="image" src="https://github.com/user-attachments/assets/29f52fb8-0991-4504-9fea-afbd3f2c0e48" />
 
 <div align="center"><sub><b>The V4 Global Terminal</b> (<code>/terminal</code>) — the planet-scale system: a worldwide
 H3 grid painted with real per-hazard screening scores across every continent, with tiered deep
