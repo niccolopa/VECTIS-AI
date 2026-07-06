@@ -72,7 +72,7 @@ def test_screened_only_cell_is_an_honest_t0(client) -> None:
 def test_pipeline_forecast_cell_is_t1_with_full_distributions(client) -> None:
     cell = _hot_cell()
     client.app.state.tile_store.save_state(cell)
-    client.app.state.live_stream.pipeline.results[cell.cell_id] = _forecast(cell.cell_id)
+    client.app.state.compute.results[cell.cell_id] = _forecast(cell.cell_id)
 
     body = client.get(f"/api/v1/cells/{cell.cell_id}/brief").json()
 

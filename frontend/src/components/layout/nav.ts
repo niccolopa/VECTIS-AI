@@ -1,9 +1,6 @@
 import type { ComponentType, SVGProps } from "react";
 import {
-  IconActivity,
   IconDataset,
-  IconLive,
-  IconMap,
   IconOverview,
   IconReport,
   IconRisk,
@@ -26,9 +23,6 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Overview", icon: IconOverview },
   { to: "/terminal", label: "Global Terminal", icon: IconTerminal },
-  { to: "/live", label: "Live Intelligence", icon: IconLive },
-  { to: "/dashboard", label: "Decision Intelligence", icon: IconActivity },
-  { to: "/maps", label: "Maps", icon: IconMap },
   { to: "/simulations", label: "Simulations", icon: IconSimulation },
   { to: "/datasets", label: "Datasets", icon: IconDataset },
   {

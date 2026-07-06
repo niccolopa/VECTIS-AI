@@ -30,13 +30,6 @@ export const IconRisk = (p: IconProps) => (
   </svg>
 );
 
-export const IconMap = (p: IconProps) => (
-  <svg {...base(p)}>
-    <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
-    <path d="M9 4v14M15 6v14" />
-  </svg>
-);
-
 export const IconReport = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M6 3h8l4 4v14H6z" />
@@ -74,12 +67,5 @@ export const IconTerminal = (p: IconProps) => (
   <svg {...base(p)}>
     <rect x="3" y="4" width="18" height="16" rx="1.5" />
     <path d="M7 9l3 3-3 3M12 15h5" />
-  </svg>
-);
-
-export const IconLive = (p: IconProps) => (
-  <svg {...base(p)}>
-    <circle cx="12" cy="12" r="2.5" />
-    <path d="M7.8 7.8a6 6 0 000 8.5M16.2 16.3a6 6 0 000-8.5M4.9 4.9a10 10 0 000 14.2M19.1 19.1a10 10 0 000-14.2" />
   </svg>
 );

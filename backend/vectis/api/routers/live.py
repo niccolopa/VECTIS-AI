@@ -1,10 +1,9 @@
-"""V3 live stream API — Server-Sent Events over the single global intelligence engine.
+"""Global terminal stream API — viewport-scoped Server-Sent Events.
 
-``GET /api/v1/stream/v3/live`` opens an SSE channel and **subscribes** to the one
-:class:`~vectis.realtime.live_stream.LiveStreamBroadcaster` started at app startup. The
-heavy pipeline (Kalman → Bayesian → Monte Carlo → decision board) runs exactly once as a
-background task; each connection is a lightweight fan-out subscriber, so a thousand open
-dashboards cost one pipeline, not a thousand concurrent Monte Carlo engines.
+``GET /api/v1/stream/v3/terminal`` subscribes one terminal viewer to the single
+:class:`~vectis.realtime.live_stream.GlobalIngestionBroadcaster` started at app
+startup; each connection is a lightweight fan-out queue re-gridding the shared
+compute loop's scores to its own viewport.
 
 SSE (not WebSocket) is the right fit here: the flow is strictly server → client, the native
 ``EventSource`` reconnects on its own, and a new viewer is handed the latest frame on connect.
@@ -28,35 +27,12 @@ from vectis.core.logging import get_logger
 from vectis.core.schemas import RiskBand
 from vectis.realtime.attention import AttentionRegistry
 from vectis.realtime.compute import SharedComputeLoop
-from vectis.realtime.live_stream import GlobalIngestionBroadcaster, LiveStreamBroadcaster
+from vectis.realtime.live_stream import GlobalIngestionBroadcaster
 from vectis.realtime.state.cell_id import DEFAULT_RESOLUTION
 
 router = APIRouter(prefix="/api/v1/stream/v3", tags=["stream-v3"])
 
 logger = get_logger(__name__)
-
-
-@router.get("/live")
-async def live_stream(request: Request) -> StreamingResponse:
-    """Stream continuous V3 forecast frames as Server-Sent Events (shared pipeline)."""
-    broadcaster: LiveStreamBroadcaster = request.app.state.live_stream
-
-    async def events() -> AsyncIterator[str]:
-        try:
-            async for frame in broadcaster.subscribe():
-                if await request.is_disconnected():
-                    break
-                yield f"data: {json.dumps(frame)}\n\n"
-        except asyncio.CancelledError:  # client went away mid-tick
-            raise
-        finally:
-            logger.info("[INFO] v3 live stream subscriber closed")
-
-    return StreamingResponse(
-        events(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
 
 
 def terminal_frame(
@@ -102,8 +78,8 @@ async def terminal_stream(
     zoom: int = Query(ge=0, le=22),
     frames_limit: int | None = Query(
         default=None, ge=1, alias="frames",
-        description="Stop after N frames — for bounded consumers/tests "
-        "(the LiveClimateStream.frames(ticks=...) convention). Default: stream forever.",
+        description="Stop after N frames — for bounded consumers/tests. "
+        "Default: stream forever.",
     ),
     viewer: str | None = Query(
         default=None,

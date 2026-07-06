@@ -1,11 +1,8 @@
-// useV3Stream / useTerminalStream — subscribe to the V3 engine over SSE.
+// useTerminalStream — subscribe to the global terminal SSE stream.
 //
-// Two stream contracts share one transport core:
-//   - useV3Stream      : GET /api/v1/stream/v3/live — the Session-24 single-headline
-//                        console frame (Kalman state, posterior, risk, driver).
-//   - useTerminalStream: GET /api/v1/stream/v3/terminal — the Session-37 global
-//                        terminal frame, scoped to the client's current viewport
-//                        (screened cells in view + the worldwide event tape).
+//   GET /api/v1/stream/v3/terminal — the Session-37 global terminal frame, scoped
+//   to the client's current viewport (screened cells in view + the worldwide
+//   event tape).
 //
 // PERFORMANCE — the whole point of the core. A fast pipeline can push many frames a
 // second; calling setState per frame would thrash React. So incoming frames land in
@@ -15,11 +12,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { liveStreamUrl, terminalStreamUrl } from "@/services/v3";
+import { terminalStreamUrl } from "@/services/v3";
 import type { TileCell, Viewport } from "@/types/tiles";
-import type { TerminalFrame, V3Event, V3Frame, V3TimelinePoint } from "@/types/v3";
+import type { TerminalFrame, V3Event } from "@/types/v3";
 
-const MAX_POINTS = 240; // ~one screen of timeline history
 const MAX_EVENTS = 100; // cap the rolling event log (also what the feed renders)
 
 /** The rAF-coalesced EventSource core: accumulate frames via `reduce` (a stable,
@@ -74,37 +70,6 @@ function useCoalescedStream<S>(
   }, [url]);
 
   return { snapshot, connected };
-}
-
-// ── the Session-24 live-console contract (unchanged) ───────────────────────────
-
-export interface V3Stream {
-  latest: V3Frame | null;
-  timeline: V3TimelinePoint[];
-  events: V3Event[];
-  connected: boolean;
-}
-
-type V3Acc = Omit<V3Stream, "connected">;
-
-const V3_EMPTY: V3Acc = { latest: null, timeline: [], events: [] };
-
-function reduceV3(acc: V3Acc, data: unknown): V3Acc {
-  const frame = data as V3Frame;
-  return {
-    latest: frame,
-    timeline: [
-      ...acc.timeline,
-      { t: frame.ts, risk: frame.risk, confidence: frame.confidence, band: frame.band },
-    ].slice(-MAX_POINTS),
-    // Newest batch on top; keep the log bounded.
-    events: [...frame.events, ...acc.events].slice(0, MAX_EVENTS),
-  };
-}
-
-export function useV3Stream(interval?: number): V3Stream {
-  const { snapshot, connected } = useCoalescedStream(liveStreamUrl(interval), V3_EMPTY, reduceV3);
-  return { ...snapshot, connected };
 }
 
 // ── the Session-37 viewport-scoped terminal contract ───────────────────────────

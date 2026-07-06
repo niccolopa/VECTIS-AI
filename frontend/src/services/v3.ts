@@ -31,14 +31,6 @@ export function syncWatchlist(cells: string[]): Promise<void> {
   }).catch(() => undefined);
 }
 
-/** Absolute URL for the V3 continuous-intelligence SSE stream. */
-export function liveStreamUrl(interval?: number): string {
-  const base = API_BASE_URL || window.location.origin;
-  const url = new URL("/api/v1/stream/v3/live", base);
-  if (interval != null) url.searchParams.set("interval", String(interval));
-  return url.toString();
-}
-
 /** Absolute URL for the viewport-scoped terminal SSE stream (Session 37).
  *
  * The bbox is rounded so sub-meter pan jitter doesn't force an SSE reconnect,

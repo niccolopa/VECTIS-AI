@@ -5,8 +5,8 @@ One honest read per cell, assembled from what *actually exists* for it today:
 - **screening** (Tier 0): the cheap vectorized point estimate per hazard, from the same
   Session-32 sweep the tile server uses. Nearly every cell on the planet has only this.
 - **analysis** (Tier 1): the full Monte Carlo + Bayesian forecast — present only when
-  the continuous pipeline has genuinely run for this cell (today, the live stream's
-  headline cell; Session 38's demand-driven compute widens this).
+  the shared compute loop's tiering engine has genuinely promoted and run this cell
+  (Session 38's demand-driven compute).
 - **report** (Tier 2): the decision board's intelligence brief, riding the analysis
   when the board convened for it.
 
@@ -25,7 +25,6 @@ from pydantic import BaseModel, Field
 
 from vectis.agents.board.schemas import DecisionIntelligenceReport
 from vectis.core.schemas import RiskBand
-from vectis.realtime.live_stream import LiveStreamBroadcaster
 from vectis.realtime.pipeline import ForecastResult
 from vectis.realtime.screening.sweep import GlobalScreeningSweep
 from vectis.realtime.state.cell_id import DEFAULT_RESOLUTION, parent_cell_id
@@ -165,14 +164,9 @@ def cell_brief(cell_id: str, request: Request) -> CellBrief:
     # The observed-state panel only makes sense for exactly one underlying cell.
     state = members[0] if len(members) == 1 else None
 
-    # T1/T2 forecasts now come from the shared compute loop (Session 38) first — the
-    # tiering engine's demand-driven results — with the legacy single-cell live
-    # pipeline as fallback so /live's headline cell keeps its brief.
-    live: LiveStreamBroadcaster = request.app.state.live_stream
-    compute = getattr(request.app.state, "compute", None)
-    result: ForecastResult | None = (
-        compute.results.get(cell_id) if compute is not None else None
-    ) or live.pipeline.results.get(cell_id)
+    # T1/T2 forecasts come from the shared compute loop (Session 38) — the tiering
+    # engine's demand-driven results.
+    result: ForecastResult | None = request.app.state.compute.results.get(cell_id)
     if not members and result is None:
         raise HTTPException(status_code=404, detail=f"no observed state for cell {cell_id!r}")
 

@@ -11,7 +11,6 @@ from fastapi import Request
 
 from vectis.core.config import Settings, get_settings
 from vectis.services.analysis_service import AnalysisService
-from vectis.services.dashboard_service import DashboardService
 from vectis.streaming.broadcaster import ConnectionManager
 from vectis.streaming.updater import RealTimeUpdater
 
@@ -22,10 +21,6 @@ def get_service(request: Request) -> AnalysisService:
 
 def get_updater(request: Request) -> RealTimeUpdater:
     return request.app.state.updater
-
-
-def get_dashboard(request: Request) -> DashboardService:
-    return request.app.state.dashboard
 
 
 def get_broadcaster(request: Request) -> ConnectionManager:

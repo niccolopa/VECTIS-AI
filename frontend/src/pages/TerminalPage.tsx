@@ -15,8 +15,6 @@
 // bbox-scoped tile snapshot, (b) useTerminalStream opens the viewport-scoped SSE
 // stream. Whichever produced cells most recently paints the map, so a pan renders
 // immediately from HTTP while the stream reconnects, then live frames take over.
-// Routed additively — /live and /dashboard are untouched; Overview stays the
-// landing route (the terminal is a deliberate destination, not a default).
 import { useCallback, useEffect, useState } from "react";
 
 import { WorldRiskMap } from "@/components/map/WorldRiskMap";
@@ -29,7 +27,7 @@ import { RegionBriefPanel } from "@/features/terminal/RegionBriefPanel";
 import { usePlayback } from "@/features/terminal/usePlayback";
 import { useTiles } from "@/features/terminal/useTiles";
 import { WatchlistPanel } from "@/features/terminal/WatchlistPanel";
-import { useTerminalStream } from "@/hooks/useV3Stream";
+import { useTerminalStream } from "@/hooks/useTerminalStream";
 import { useWatchlistStore } from "@/stores/watchlistStore";
 import { SCREENED_HAZARDS, type TileCell, type Viewport } from "@/types/tiles";
 import type { CellBrief } from "@/types/cells";

@@ -2,12 +2,9 @@
 // Source of truth on the server side:
 //   - vectis/simulation/schemas.py        → ProbabilityDistribution
 //   - vectis/digital_twin/schemas.py       → RiskState
-//   - vectis/digital_twin/entities/region  → RegionState
 //   - vectis/agents/board/schemas.py       → DecisionIntelligenceReport (+ parts)
-//   - vectis/services/dashboard_service.py → ScenarioProjection / TwinDashboardView / WhatIf*
-//   - vectis/streaming/events.py           → StateChange (WebSocket push)
-// Keep these in lockstep with the backend — this is the type contract the whole
-// dashboard (Recharts/D3 charts included) is built on.
+// Keep these in lockstep with the backend — this is the type contract the shared
+// scenario/brief components (Recharts/D3 charts included) are built on.
 
 import type { RiskBand } from "@/types/api";
 
@@ -35,14 +32,6 @@ export interface RiskState {
   confidence: number; // 0–1
   scenario_priors: Record<string, number>;
   updated_at: string; // ISO datetime
-}
-
-/** The physical, user-editable state of a region twin (the What-If sliders map here). */
-export interface RegionState {
-  temperature_anomaly: number; // °C above baseline
-  humidity_level: number; // %
-  vegetation_stress: number; // 0–100 dryness index
-  recent_fire_history: number; // count of recent detections
 }
 
 /** One scenario branch + its full outcome distribution (the Scenario Explorer unit). */
@@ -109,52 +98,4 @@ export interface DecisionIntelligenceReport {
   scenarios: ScenarioNarrative[];
   debate: DebateRound;
   red_team: RedTeamCritique;
-}
-
-// ── Dashboard composite payloads ──────────────────────────────────────────────
-export interface TwinDashboardView {
-  twin_id: string;
-  kind: string;
-  state: RegionState;
-  risk: RiskState;
-  scenarios: ScenarioProjection[];
-  report: DecisionIntelligenceReport;
-}
-
-/** What-If deltas — any omitted field keeps the twin's current value. */
-export interface StateOverrides {
-  temperature_anomaly?: number;
-  humidity_level?: number;
-  vegetation_stress?: number;
-  recent_fire_history?: number;
-}
-
-export interface WhatIfRequest {
-  twin_id: string;
-  overrides: StateOverrides;
-  n_iterations?: number;
-}
-
-export interface WhatIfResult {
-  twin_id: string;
-  state: RegionState;
-  risk: RiskState;
-  scenarios: ScenarioProjection[];
-}
-
-// ── Real-time stream (Session 9 WebSocket) ───────────────────────────────────
-export interface StateChange {
-  type: "state_changed";
-  event_id: string;
-  triggered_rerun: boolean;
-  belief_shift: number;
-  risk: RiskState;
-}
-
-/** A point on the Probability Timeline, accumulated client-side from the stream. */
-export interface TimelinePoint {
-  t: string; // ISO timestamp
-  risk: number; // 0–100
-  confidence: number; // 0–1
-  band: RiskBand;
 }

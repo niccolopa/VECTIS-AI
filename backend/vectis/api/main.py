@@ -24,15 +24,10 @@ from vectis.database.repository import build_repository
 from vectis.realtime.attention import AttentionRegistry
 from vectis.realtime.compute import SharedComputeLoop
 from vectis.realtime.history import HistoryRecorder
-from vectis.realtime.live_stream import (
-    GlobalIngestionBroadcaster,
-    LiveClimateStream,
-    LiveStreamBroadcaster,
-)
+from vectis.realtime.live_stream import GlobalIngestionBroadcaster
 from vectis.realtime.state.models import WorldCellState
 from vectis.realtime.state.store import EvictingStateStore, MemoryStateStore
 from vectis.services.analysis_service import AnalysisService
-from vectis.services.dashboard_service import DashboardService
 from vectis.streaming.broadcaster import ConnectionManager
 from vectis.streaming.updater import build_default_updater
 
@@ -46,11 +41,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     repository = build_repository()
     app.state.service = AnalysisService(repository=repository)
     app.state.updater = build_default_updater()
-    # Dashboard shares the updater's twin registry, so live ingest updates show up.
-    app.state.dashboard = DashboardService(app.state.updater.manager)
     app.state.broadcaster = ConnectionManager()
-    # ONE global V3 pipeline, fanned out to every SSE viewer (not one pipeline per connection).
-    app.state.live_stream = LiveStreamBroadcaster(LiveClimateStream())
     # Who is looking where (Session 38): SSE handlers register viewports/watchlists;
     # eviction and the warming cadence consult it.
     app.state.attention = AttentionRegistry()
@@ -75,7 +66,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # rate is structurally bounded by the tiering budgets.
         history=HistoryRecorder(),
     )
-    await app.state.live_stream.start()
     # Tests set VECTIS_GLOBAL_INGESTION=0: the loop writes real global events into the
     # same tile_store their assertions seed, so it must not race them. The loop object
     # still exists — tests drive ticks deterministically via run_cycle().
@@ -84,7 +74,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info("api.startup", env=settings.env, llm_provider=settings.llm_provider)
     yield
     await app.state.compute.stop()
-    await app.state.live_stream.stop()
     log.info("api.shutdown")
 
 
@@ -117,7 +106,6 @@ def create_app() -> FastAPI:
         analyses,
         cells,
         connectors,
-        dashboard,
         health,
         history,
         intelligence,
@@ -135,7 +123,6 @@ def create_app() -> FastAPI:
     app.include_router(models.router)
     app.include_router(stream.router)
     app.include_router(intelligence.router)
-    app.include_router(dashboard.router)
     app.include_router(live.router)
     app.include_router(tiles.router)
     app.include_router(cells.router)
