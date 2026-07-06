@@ -96,7 +96,8 @@ export function WorldRiskMap({
       zoom: WORLD_ZOOM,
       attributionControl: false,
     });
-    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    // Compass doubles as the reset-to-north/pitch control (native MapLibre).
+    m.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), "top-right");
     map.current = m;
 
     // Debounced viewport reporting: `moveend` fires once per gesture, the timer
