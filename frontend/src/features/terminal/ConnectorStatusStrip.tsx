@@ -34,7 +34,9 @@ function FeedBadge({ c }: { c: ConnectorStatus }) {
           ? `${c.label}: genuinely fetching live data`
           : `${c.label}: running on offline synthetic fallback (no live fetch)`
       }
-      className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide ${
+      // shrink-0 + nowrap: a squeezed strip must never wrap a label ("MULTI-HAZARD"
+      // broke at its hyphen into a two-line box, unlike its three siblings).
+      className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide ${
         live
           ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
           : "border-risk-high/60 bg-risk-high/10 text-risk-high"
