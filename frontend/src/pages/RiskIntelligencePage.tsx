@@ -16,8 +16,8 @@ export function RiskIntelligencePage() {
   return (
     <PageContainer full>
       <PageHeader
-        title="California Case Study — V1 Legacy Demo"
-        subtitle="The original reactive pipeline: California-trained wildfire model with SHAP-attributed drivers."
+        title="California Case Study — Origin Demo (V1 Archive)"
+        subtitle="The preserved original pipeline: California-trained wildfire model with real SHAP-attributed drivers."
         actions={
           <>
             <RegionSelector value={regionKey} onChange={setRegion} />

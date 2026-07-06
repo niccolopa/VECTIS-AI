@@ -41,7 +41,7 @@ export function ReportsPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Case Study Reports — V1 Legacy Demo" subtitle="Every California Case Study analysis the V1 pipeline has produced. Select one to view the full report." />
+      <PageHeader title="Case Study Reports — Origin Demo (V1 Archive)" subtitle="Every California Case Study analysis the archived V1 pipeline has produced. Select one to view the full report." />
       <LegacyDemoBanner />
       <Card flush>
         {isLoading ? (

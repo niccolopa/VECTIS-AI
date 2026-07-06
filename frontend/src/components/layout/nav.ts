@@ -12,14 +12,15 @@ export interface NavItem {
   to: string;
   label: string;
   icon: ComponentType<SVGProps<SVGSVGElement>>;
-  // Optional group heading rendered above this item in the sidebar. Used to
-  // separate the global V4 platform from the fixed V1 California demo so a new
-  // user can never mistake the legacy Case Study for the planet-scale system.
+  // Marks the start of the secondary "Origin Demo" archive group: this item and
+  // everything after it render in a collapsed-by-default section below a divider,
+  // so a new user can never mistake the V1 California Case Study for the
+  // planet-scale system. The value is the group's heading.
   section?: string;
 }
 
 // Sidebar navigation — the operational sections of the VECTIS console.
-// Ordered global-platform first, then the clearly-fenced V1 legacy demo.
+// Ordered global-platform first, then the collapsed V1 origin-demo archive.
 export const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Overview", icon: IconOverview },
   { to: "/terminal", label: "Global Terminal", icon: IconTerminal },
@@ -29,7 +30,7 @@ export const NAV_ITEMS: NavItem[] = [
     to: "/risk",
     label: "California Case Study",
     icon: IconRisk,
-    section: "V1 Legacy Demo",
+    section: "Origin Demo · V1 Archive",
   },
   { to: "/reports", label: "Case Study Reports", icon: IconReport },
 ];
