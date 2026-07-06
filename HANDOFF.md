@@ -12,7 +12,28 @@
 > (B) V1/V4 unification) are in Session 40's "Next Steps". Every other "Next Steps" line is
 > that session's own historical pointer to the one that followed it — not a live to-do.
 
-Last updated: **2026-07-05** · End of **Session 41** (Real Driver Explainability &
+Last updated: **2026-07-07** · End of **Session 42** (Retire Redundant Legacy Surfaces &
+Fix Global Terminal UI Bugs — **COMPLETE**: consolidated four analysis surfaces down to two —
+**retired entirely** (routes, nav, page components, sole-consumer backend code) the V2
+"Decision Intelligence" dashboard (`/dashboard` + `dashboard_service.py` + its router/tests),
+the V3 "Live Intelligence" console (`/live` + the `GET /api/v1/stream/v3/live` SSE endpoint +
+`LiveClimateStream`/`LiveStreamBroadcaster` + the cell-brief fallback that existed only for
+its headline cell), and the near-empty **Maps** page; **kept V1** (California Case Study /
+Case Study Reports) but moved it into a collapsed, dimmed **"Origin Demo · V1 Archive"**
+sidebar section (native `<details>`, forced open only on an archive route) with banner/title
+copy updated to say *archival* and to name what V1 uniquely preserves — the trained-ML +
+real-SHAP pipeline vs the terminal's closed-form attribution; fixed the three confirmed
+Global Terminal UI bugs — `RegionBriefPanel` truncation (it nested a second fixed-height
+scroll region inside the already-scrolling column, so flex-shrink + Card `overflow-hidden`
+clipped text; the column is now the one scroll region), missing map compass (MapLibre
+`NavigationControl` `showCompass: true`), and the two-line "MULTI-HAZARD" badge (label broke
+at its hyphen under flex squeeze — measured 38px vs 22px in-browser; `shrink-0` +
+`whitespace-nowrap` on the shared `FeedBadge`); added **delete-with-confirmation** to Case
+Study Reports (`DELETE /api/v1/analyses/{id}` through the repository seam + a Modal-gated
+per-row action); README/docs rewritten to the two-tier reality. Net **≈ −1,700 lines**.
+Backend **320 tests green** + 1 network-gated skip, ruff + mypy clean; frontend **26 Vitest
+tests**, tsc + eslint clean. See the Session 42 section directly below.) · End of
+**Session 41** (Real Driver Explainability &
 Live-Data Transparency — **COMPLETE. Path B closed.**: added closed-form driver attribution
 to every `HazardModel` — `explain()` returns each factor's exact `coefᵢ × (inputᵢ − baselineᵢ)`
 log-odds contribution for the three logistic hazards (one shared base implementation) and the
@@ -260,6 +281,135 @@ Event Streaming Engine — `MessageBroker` ABC with an in-process `MemoryBroker`
 Processor`; `GlobalEvent` hardened with `confidence`/`metadata`. Session 17:
 resilient `BaseAPIConnector` + weather/satellite/generic connectors + `IngestionManager`. Session
 16: V3 foundation — `realtime/` scaffold, `GlobalEvent` + `StateEstimator` interfaces.)
+
+---
+
+## Session 42 — Retire Redundant Legacy Surfaces & Fix Global Terminal UI Bugs
+
+### Goal
+
+Consolidate, don't relabel. After reviewing the live app, the owner found four analysis
+surfaces sharing one sidebar — V1 (labeled legacy), the V2 "Decision Intelligence"
+dashboard (hardcoded to one California twin, manual-slider What-If — not real data), V3
+"Live Intelligence" (hardcoded to the single fixed cell `California_01`), and the V4
+Global Terminal (the real, region-agnostic, live system). Decision: **retire V2, V3, and
+Maps entirely** (code removed, not hidden — routes, nav, components, and any backend that
+existed solely to serve them, verified for other consumers first); **keep V1** but move it
+out of the primary sidebar into a clearly-secondary archive section, since it is the only
+surface demonstrating the original trained-ML + real-SHAP pipeline (genuinely different
+from Session 41's closed-form attribution) and has standalone historical value. Also fix
+three confirmed Global Terminal UI bugs (brief-panel scroll truncation, no compass/reset-
+to-north, inconsistent GDACS badge) and give the surviving V1 reports table a delete
+action with confirmation. Hard constraint: don't touch TierManager, hazard coefficients,
+tiering budgets, or anything stress-tested in Sessions 38–41. Ponytail (YAGNI-first) was
+active for the whole session: clean removals, no legacy shims, no redirect systems.
+
+### Current Progress: Session 42 — Retire Redundant Legacy Surfaces & Fix Global Terminal UI Bugs — COMPLETE.
+
+Seven atomic commits, each tested before the next:
+
+1. **`/ponytail-audit` first (Step 0, no commit).** The whole-repo audit mapped the true
+   blast radius before any deletion, and its most valuable output was the *keep* list:
+   `AiIntelligenceBrief` + `ScenarioExplorer` (features/dashboard) and `ProbabilityBars`
+   (features/realtime) are **shared** — the terminal's `RegionBriefPanel` renders them —
+   and `GlobalIngestionBroadcaster` + the oscillating mock connectors in `live_stream.py`
+   power the terminal and the CLI demo. It also flagged two kept-but-noted YAGNI items
+   (below) and the exact dead-type list (`V3Frame`, `TwinDashboardView`, `WhatIf*`, …).
+2. **Retire V2 + V3 + Maps** (`d07b9e6`, −1,693 lines). Frontend: `/dashboard`, `/live`,
+   `/maps` routes + pages; `ProbabilityTimeline`, `WhatIfSimulator`, `EventFeed`,
+   `LiveIntelligenceHeader`, `LiveRiskMap`, `RiskEvolutionTimeline`; `dashboardQueries`,
+   `useTwinStream`, `services/dashboard.ts`; the `useV3Stream` half of the stream hook
+   (file renamed `useTerminalStream.ts`); dead types pruned. Backend:
+   `routers/dashboard.py`, `services/dashboard_service.py`, `deps.get_dashboard`,
+   `app.state.dashboard`; the `/api/v1/stream/v3/live` route; `LiveClimateStream` +
+   `LiveStreamBroadcaster` + their lifespan wiring; `cells.py` now reads **only**
+   `compute.results` (the S38 shared loop) — the live-pipeline fallback existed solely
+   for the retired page's headline cell. Stale tests deleted/re-pointed.
+3. **V1 → "Origin Demo · V1 Archive"** (`73644fa`). Collapsed-by-default native
+   `<details>` group below a divider, dimmed links, forced open only while an archive
+   route is active; banner + page titles now say *archival* and name the trained-ML +
+   real-SHAP capability; the S40 nav honesty-guard test tightened to also pin the archive
+   group below every primary item.
+4. **Brief-panel scroll fix** (`75c1aec`). Root cause, not symptom: the panel pinned
+   itself to the column height (`h-full`) and opened a second scroll region inside the
+   already-scrolling right column, so its flex children shrank to fit and `Card`'s
+   `overflow-hidden` clipped the T0 explanation mid-sentence. The column is now the one
+   scroll region.
+5. **Map compass** (`77bb47b`). One word: the `NavigationControl` was already mounted
+   with `showCompass: false` → `true` (+ `visualizePitch`).
+6. **Badge consistency** (`e277ff4`). Verified in the running app: all four badges were
+   byte-identical in markup, but flex squeeze broke "MULTI-HAZARD" at its hyphen into a
+   two-line 38px box beside three 22px pills. `shrink-0` + `whitespace-nowrap` on the
+   shared `FeedBadge`; re-measured in-browser, all four now 22px.
+7. **Report deletion** (`5164f29`). `DELETE /api/v1/analyses/{id}` (204/404) through the
+   `AnalysisRepository` protocol (memory + SQL), `useDeleteAnalysis` mutation, per-row ✕
+   gated behind the existing `Modal`; API + page tests cover confirm-deletes and
+   cancel-does-not.
+8. **Docs sweep** (`c82b234`). README "Two analysis systems" now = Global Terminal
+   primary vs Origin Demo archive (+ a note that V2/V3/Maps were retired); the V2
+   dashboard quick-start and feature section replaced by the terminal; deployment/
+   frontend docs re-pointed; `v2_architecture.md` got an archival header since its
+   dashboard files no longer exist; demo script's V2 B-roll is CLI-only now.
+
+**Validation (full suites, Step 8 — no removal breakage to fix):** backend **320 passed,
+1 skipped** (the pre-existing network-gated skip), ruff + mypy clean (169 files);
+frontend **26 Vitest tests** in 10 files, tsc + eslint clean.
+
+### What Worked
+
+- **Audit before deletion.** The 15-minute dependency trace (who imports what) found
+  every shared component *before* anything was removed — `RegionBriefPanel` quietly
+  reuses three "V2/V3" components, and deleting by directory would have broken the
+  surviving terminal. The audit's keep-list was worth more than its cut-list.
+- **Verifying the badge bug empirically instead of pattern-matching.** The four badges
+  are one component with identical classes — no code read would find the bug. Running
+  the real app and measuring the DOM (38px vs 22px) found it in minutes: a *layout*
+  interaction (flex squeeze + hyphen break), fixed with two utility classes on the
+  shared component.
+- **Root-causing the scroll bug to the double scroll region.** The tempting symptom fix
+  (make the inner overflow work) would have kept two nested scroll regions; deleting the
+  inner one was both the smaller diff and the correct architecture.
+- **Native platform features all the way down.** `<details>` for the collapsed archive
+  (no state management), MapLibre's own compass, the existing `Modal`/`Button`/mutation
+  patterns for deletion. Zero new dependencies, zero new abstractions.
+- **One atomic commit per step** made each change independently revertible and kept the
+  diff reviews honest (the step-1 review caught a leftover None-guard and a stray
+  scratch file before commit).
+
+### What Didn't Work
+
+- **`IconActivity` looked dead but wasn't.** The nav cleanup deleted it with the other
+  orphaned icons; tsc immediately flagged the Navbar's health chip as a second consumer
+  (an earlier truncated grep had hidden it). Restored. Lesson: for "unused" *exports*,
+  trust the compiler over a capped grep.
+- **The badge bug was invisible in jsdom.** All existing component tests pass with the
+  broken layout, and no jsdom assertion can catch a flex-squeeze line-break — which is
+  why no regression test was added for it (a class-string assertion would be a
+  tautology). The honest check was the in-browser measurement; it is recorded in the
+  commit message.
+- **Kept, but flagged for the owner (audit YAGNI items):** `stream.py` (S9
+  `POST /ingest` / `WS /ws` / `GET /state`) lost its only UI consumer with the V2
+  dashboard, but it is a documented standalone API with its own tests and README curl
+  example — outside this session's "exists only to serve the retired pages" boundary.
+  Same for `intelligence.py` (`POST /api/v1/intelligence/reports`, zero frontend
+  consumers). Cutting either is a product decision, not dead-code removal.
+- **HANDOFF/session-log references to retired code were left as-is** (deliberate): the
+  log is a historical record, and rewriting it would falsify history. Only
+  forward-looking docs (README, deployment, frontend, demo script) were re-pointed.
+
+### Next Steps
+
+The V4 arc remains closed; this was post-release consolidation. Open, none blocking:
+
+- **Owner call on the two flagged YAGNI endpoints** — retire `stream.py`'s S9 surface
+  and/or `intelligence.py` if nothing external consumes them, or leave as documented
+  API-only features.
+- The standing post-V4 frontier from Sessions 40–41 is unchanged: a real FIRMS MAP_KEY
+  flips the last synthetic badge to LIVE; real calibration remains the repo-wide caveat
+  (drop an artifact into `artifacts/calibration/`, zero code change).
+- `scripts/demo_v3_live.py` (the Session-23 CLI demo) still runs and now owns the only
+  remaining consumers of the oscillating mock connectors; if it is ever retired, those
+  connectors and their `live_stream.py` home shrink further.
 
 ---
 
